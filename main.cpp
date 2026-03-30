@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <deque>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -124,6 +125,7 @@ struct Villager
     float moveSpeed = TILE_WORLD_STEP * 0.8f * 1.7f;  // World-space units per second (~72.7 units/sec)
     float walkAnimTimer = 0.0f;                         // Accumulates elapsed time to know when to advance the animation frame
     int walkFrameIndex = 0;                             // Current frame within the 30-frame walk cycle
+    std::deque<glm::vec2> waypointQueue;               // Shift+RClick queued destinations — popped in order after each arrival
 };
 
 // Represents a static pine tree obstacle placed on the map.
@@ -1071,6 +1073,8 @@ int main()
         // Game Logic Update
         // Move the villager toward its target, advance its walk animation frame,
         // and stop it if it reaches a tree-blocked tile.
+        // When a waypoint is reached, the next queued waypoint (if any) is
+        // automatically popped and becomes the new target (AoE2-style queuing).
         // ---------------------------------------------------------------------
         if (appState.villager.moving)
         {
@@ -1093,7 +1097,28 @@ int main()
                     appState.villager.facingDirection = glm::normalize(toTarget);
                 }
                 appState.villager.position = appState.villager.targetPosition;
-                appState.villager.moving = false;
+
+                // Pop the next queued waypoint and keep moving, or stop.
+                if (!appState.villager.waypointQueue.empty())
+                {
+                    const glm::vec2 nextWP = appState.villager.waypointQueue.front();
+                    appState.villager.waypointQueue.pop_front();
+                    const glm::vec2 toNext = nextWP - appState.villager.position;
+                    if (glm::length(toNext) > 1.0f)
+                    {
+                        appState.villager.targetPosition = nextWP;
+                        appState.villager.facingDirection = glm::normalize(toNext);
+                        appState.villager.moving = true;
+                    }
+                    else
+                    {
+                        appState.villager.moving = false;
+                    }
+                }
+                else
+                {
+                    appState.villager.moving = false;
+                }
             }
             else
             {
@@ -1102,7 +1127,9 @@ int main()
                 const std::optional<glm::ivec2> nextTile = world_to_tile(nextPosition);
                 if (nextTile.has_value() && is_tree_tile_blocked(appState, *nextTile))
                 {
+                    // Blocked — cancel the entire queue
                     appState.villager.targetPosition = appState.villager.position;
+                    appState.villager.waypointQueue.clear();
                     appState.villager.moving = false;
                 }
                 else
@@ -1231,6 +1258,99 @@ int main()
                 glBindVertexArray(selectionVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
             }
+
+            // Draw waypoint markers: current target + all queued waypoints.
+            // Each is a small diamond outline; a line connects them in order.
+            if (appState.villager.selected && appState.villager.moving)
+            {
+                // Build the ordered list: current target first, then queued waypoints.
+                std::vector<glm::vec2> allWPs;
+                allWPs.reserve(1 + appState.villager.waypointQueue.size());
+                allWPs.push_back(appState.villager.targetPosition);
+                for (const glm::vec2& wp : appState.villager.waypointQueue)
+                {
+                    allWPs.push_back(wp);
+                }
+
+                glUseProgram(overlayShaderProgram);
+                glUniformMatrix4fv(overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+                glUniformMatrix4fv(overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+                // Draw a small diamond at each waypoint.
+                constexpr float wpHW = 8.0f;
+                constexpr float wpHH = 4.0f;
+                // Reuse a simple 4-point diamond defined inline (LINE_LOOP).
+                // We draw it as 4 vertices: top, right, bottom, left.
+                // Instead of creating a new VAO, we batch via the existing selectionVAO
+                // by scaling via uOffset — but the simplest approach is a temp VBO.
+                // We'll use a small static local VBO allocated once.
+                static unsigned int wpVAO = 0;
+                static unsigned int wpVBO = 0;
+                if (wpVAO == 0)
+                {
+                    const float diamond[] = {
+                         0.0f,  wpHH,
+                         wpHW,  0.0f,
+                         0.0f, -wpHH,
+                        -wpHW,  0.0f
+                    };
+                    glGenVertexArrays(1, &wpVAO);
+                    glGenBuffers(1, &wpVBO);
+                    glBindVertexArray(wpVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, wpVBO);
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(diamond), diamond, GL_STATIC_DRAW);
+                    glEnableVertexAttribArray(0);
+                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+                }
+
+                // Draw line strip connecting villager -> each waypoint in order.
+                {
+                    // Build a temporary line-strip VBO: villager pos + all waypoints.
+                    std::vector<float> lineVerts;
+                    lineVerts.reserve((1 + allWPs.size()) * 2);
+                    lineVerts.push_back(appState.villager.position.x);
+                    lineVerts.push_back(appState.villager.position.y);
+                    for (const glm::vec2& wp : allWPs)
+                    {
+                        lineVerts.push_back(wp.x);
+                        lineVerts.push_back(wp.y);
+                    }
+                    static unsigned int lineVAO = 0;
+                    static unsigned int lineVBO = 0;
+                    if (lineVAO == 0)
+                    {
+                        glGenVertexArrays(1, &lineVAO);
+                        glGenBuffers(1, &lineVBO);
+                        glBindVertexArray(lineVAO);
+                        glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+                        glBufferData(GL_ARRAY_BUFFER, 0, nullptr, GL_DYNAMIC_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+                    }
+                    glBindVertexArray(lineVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+                    glBufferData(GL_ARRAY_BUFFER,
+                        static_cast<GLsizeiptr>(lineVerts.size() * sizeof(float)),
+                        lineVerts.data(), GL_DYNAMIC_DRAW);
+                    glUniform2f(overlayOffsetLoc, 0.0f, 0.0f);
+                    glUniform4f(overlayColorLoc, 1.0f, 1.0f, 0.3f, 0.55f);
+                    glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(lineVerts.size() / 2));
+                }
+
+                // Draw diamond at each waypoint.
+                glBindVertexArray(wpVAO);
+                for (size_t i = 0; i < allWPs.size(); ++i)
+                {
+                    const glm::vec2& wp = allWPs[i];
+                    glUniform2f(overlayOffsetLoc, wp.x, wp.y);
+                    // First waypoint (current target) is brighter.
+                    if (i == 0)
+                        glUniform4f(overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
+                    else
+                        glUniform4f(overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.75f);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                }
+            }
         }
 
         if (appState.selection.dragging && appState.selection.moved)
@@ -1342,11 +1462,6 @@ int main()
 // Camera speed is scaled by (1/zoom) so panning feels consistent at all zoom levels.
 void processInput(GLFWwindow* window)
 {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-    {
-        glfwSetWindowShouldClose(window, true);
-    }
-
     const float velocity = cameraSpeed * deltaTime * (1.0f / zoom);
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
     {
@@ -1377,9 +1492,9 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset)
     }
 
     zoom += static_cast<float>(yoffset) * 0.1f * zoom;
-    if (zoom < 0.1f)
+    if (zoom < 0.25f)
     {
-        zoom = 0.1f;
+        zoom = 0.25f;
     }
     if (zoom > 10.0f)
     {
@@ -1477,23 +1592,37 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
         if (!targetTile.has_value() || is_tree_tile_blocked(*gAppState, *targetTile))
         {
+            // Invalid tile — cancel all movement.
             gAppState->villager.targetPosition = gAppState->villager.position;
+            gAppState->villager.waypointQueue.clear();
             gAppState->villager.moving = false;
             return;
         }
 
         const glm::vec2 moveTarget = tile_to_world(*targetTile);
-        const glm::vec2 toTarget = moveTarget - gAppState->villager.position;
-        if (glm::length(toTarget) > 1.0f)
+        const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+
+        if (shiftHeld && gAppState->villager.moving)
         {
-            gAppState->villager.targetPosition = moveTarget;
-            gAppState->villager.facingDirection = glm::normalize(toTarget);
-            gAppState->villager.moving = true;
+            // Shift+RClick: append to waypoint queue.
+            gAppState->villager.waypointQueue.push_back(moveTarget);
         }
         else
         {
-            gAppState->villager.targetPosition = gAppState->villager.position;
-            gAppState->villager.moving = false;
+            // Plain RClick or not yet moving: clear queue, set new immediate target.
+            gAppState->villager.waypointQueue.clear();
+            const glm::vec2 toTarget = moveTarget - gAppState->villager.position;
+            if (glm::length(toTarget) > 1.0f)
+            {
+                gAppState->villager.targetPosition = moveTarget;
+                gAppState->villager.facingDirection = glm::normalize(toTarget);
+                gAppState->villager.moving = true;
+            }
+            else
+            {
+                gAppState->villager.targetPosition = gAppState->villager.position;
+                gAppState->villager.moving = false;
+            }
         }
     }
 }
