@@ -152,6 +152,12 @@ struct TownCenter
     int maxHp = 2400;
     int villagerQueueCount = 0;
     float villagerTrainingTimer = 0.0f;
+    int garrisonCount = 0;
+    int maxGarrison = 15;
+    glm::vec2 gatherPoint = glm::vec2(0.0f);
+    bool hasGatherPoint = false;
+    int attack = 5;
+    int range = 6;
 };
 
 // Tracks the state of the mouse drag-select box.
@@ -999,6 +1005,8 @@ int main()
     float cx = static_cast<float>(tc.tile.x) + 1.5f;
     float cy = static_cast<float>(tc.tile.y) + 1.5f;
     tc.position = tile_to_world(glm::vec2(cx, cy));
+    tc.hasGatherPoint = true;
+    tc.gatherPoint = tile_to_world(glm::ivec2(tc.tile.x - 1, tc.tile.y + 6));
     appState.townCenters.push_back(tc);
 
     for (int i = 0; i < 3; i++)
@@ -1288,6 +1296,32 @@ int main()
         }
 
         // ---------------------------------------------------------------------
+        // Villager Collision Resolution (Soft separation)
+        // ---------------------------------------------------------------------
+        constexpr float VILLAGER_RADIUS = 12.0f;
+        for (size_t i = 0; i < appState.villagers.size(); ++i)
+        {
+            for (size_t j = i + 1; j < appState.villagers.size(); ++j)
+            {
+                glm::vec2 delta = appState.villagers[i].position - appState.villagers[j].position;
+                float dist = glm::length(delta);
+                if (dist < 0.001f)
+                {
+                    delta = glm::vec2(0.1f, 0.0f);
+                    dist = 0.1f;
+                }
+                
+                if (dist < VILLAGER_RADIUS * 2.0f)
+                {
+                    float overlap = (VILLAGER_RADIUS * 2.0f) - dist;
+                    glm::vec2 push = (delta / dist) * overlap * 5.0f * deltaTime;
+                    appState.villagers[i].position += push;
+                    appState.villagers[j].position -= push;
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
         // Process Town Center Logic
         // ---------------------------------------------------------------------
         for (TownCenter& tc : appState.townCenters)
@@ -1304,7 +1338,24 @@ int main()
                     // Spawn the villager exactly as we did at start (near the south face)
                     glm::ivec2 vTile = glm::ivec2(tc.tile.x - 1, tc.tile.y + 5);
                     v.position = tile_to_world(vTile);
-                    v.targetPosition = v.position;
+                    if (tc.hasGatherPoint)
+                    {
+                        const glm::vec2 toGP = tc.gatherPoint - v.position;
+                        if (glm::length(toGP) > 1.0f)
+                        {
+                            v.targetPosition = tc.gatherPoint;
+                            v.facingDirection = glm::normalize(toGP);
+                            v.moving = true;
+                        }
+                        else
+                        {
+                            v.targetPosition = v.position;
+                        }
+                    }
+                    else
+                    {
+                        v.targetPosition = v.position;
+                    }
                     appState.villagers.push_back(v);
                 }
             }
@@ -1624,6 +1675,14 @@ int main()
                 {
                     // Placeholder for actual town center selection circle
                 }
+
+                if (tc.selected && tc.hasGatherPoint)
+                {
+                    glUniform2f(overlayOffsetLoc, tc.gatherPoint.x, tc.gatherPoint.y);
+                    glUniform4f(overlayColorLoc, 1.0f, 0.0f, 0.0f, 1.0f); // Red
+                    glBindVertexArray(tileVAO);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                }
             }
         }
         
@@ -1867,8 +1926,11 @@ int main()
                 ImGui::BeginGroup();
                 ImGui::Text("Town Center");
                 char hpText[32];
-                snprintf(hpText, sizeof(hpText), "%d / %d", firstSelectedTC->hp, firstSelectedTC->maxHp);
+                snprintf(hpText, sizeof(hpText), "Health: %d / %d", firstSelectedTC->hp, firstSelectedTC->maxHp);
                 ImGui::ProgressBar(static_cast<float>(firstSelectedTC->hp) / static_cast<float>(firstSelectedTC->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                ImGui::Text("Capacity: %d/%d", firstSelectedTC->garrisonCount, firstSelectedTC->maxGarrison);
+                ImGui::Text("Attack: %d", firstSelectedTC->attack);
+                ImGui::Text("Range: %d", firstSelectedTC->range);
                 ImGui::EndGroup();
 
                 if (firstSelectedTC->villagerQueueCount > 0)
@@ -2197,6 +2259,19 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             if (v.selected) anySelected = true;
         }
 
+        TownCenter* selectedTC = nullptr;
+        if (!anySelected)
+        {
+            for (TownCenter& tc : gAppState->townCenters)
+            {
+                if (tc.selected)
+                {
+                    selectedTC = &tc;
+                    break;
+                }
+            }
+        }
+
         if (anySelected)
         {
             const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
@@ -2245,6 +2320,16 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         v.moving = false;
                     }
                 }
+            }
+        }
+        else if (selectedTC)
+        {
+            const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
+            const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
+            if (targetTile.has_value() && !is_tile_blocked(*gAppState, *targetTile))
+            {
+                selectedTC->hasGatherPoint = true;
+                selectedTC->gatherPoint = tile_to_world(*targetTile);
             }
         }
     }
