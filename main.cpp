@@ -150,6 +150,8 @@ struct TownCenter
     bool selected = false;
     int hp = 2400;
     int maxHp = 2400;
+    int villagerQueueCount = 0;
+    float villagerTrainingTimer = 0.0f;
 };
 
 // Tracks the state of the mouse drag-select box.
@@ -1285,6 +1287,33 @@ int main()
             }
         }
 
+        // ---------------------------------------------------------------------
+        // Process Town Center Logic
+        // ---------------------------------------------------------------------
+        for (TownCenter& tc : appState.townCenters)
+        {
+            if (tc.villagerQueueCount > 0)
+            {
+                tc.villagerTrainingTimer += deltaTime;
+                if (tc.villagerTrainingTimer >= 14.7f)
+                {
+                    tc.villagerQueueCount--;
+                    tc.villagerTrainingTimer = 0.0f;
+                    
+                    Villager v;
+                    // Spawn the villager exactly as we did at start (near the south face)
+                    glm::ivec2 vTile = glm::ivec2(tc.tile.x - 1, tc.tile.y + 5);
+                    v.position = tile_to_world(vTile);
+                    v.targetPosition = v.position;
+                    appState.villagers.push_back(v);
+                }
+            }
+            else
+            {
+                tc.villagerTrainingTimer = 0.0f;
+            }
+        }
+
 
         // ---------------------------------------------------------------------
         // Line of Sight Update (Fog of War)
@@ -1799,6 +1828,22 @@ int main()
                     }
                 }
             }
+            else if (firstSelectedTC)
+            {
+                if (firstSelectedTC->villagerQueueCount < 15)
+                {
+                    if (ImGui::Button("Create Villager (Q)", ImVec2(160, 40)) || ImGui::IsKeyPressed(ImGuiKey_Q, false))
+                    {
+                        firstSelectedTC->villagerQueueCount++;
+                    }
+                }
+                else
+                {
+                    ImGui::BeginDisabled();
+                    ImGui::Button("Create Villager (Q) (Max)", ImVec2(160, 40));
+                    ImGui::EndDisabled();
+                }
+            }
 
             // --- Column 1: Details ---
             ImGui::TableSetColumnIndex(1);
@@ -1819,10 +1864,24 @@ int main()
             }
             else if (firstSelectedTC)
             {
+                ImGui::BeginGroup();
                 ImGui::Text("Town Center");
                 char hpText[32];
                 snprintf(hpText, sizeof(hpText), "%d / %d", firstSelectedTC->hp, firstSelectedTC->maxHp);
                 ImGui::ProgressBar(static_cast<float>(firstSelectedTC->hp) / static_cast<float>(firstSelectedTC->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                ImGui::EndGroup();
+
+                if (firstSelectedTC->villagerQueueCount > 0)
+                {
+                    ImGui::SameLine(0.0f, 20.0f);
+                    ImGui::BeginGroup();
+                    ImGui::Text("Training Villager (%d/15)", firstSelectedTC->villagerQueueCount);
+                    const float progress = firstSelectedTC->villagerTrainingTimer / 14.7f;
+                    char buf[32];
+                    snprintf(buf, sizeof(buf), "%.1fs", 14.7f - firstSelectedTC->villagerTrainingTimer);
+                    ImGui::ProgressBar(progress, ImVec2(160.0f, 20.0f), buf);
+                    ImGui::EndGroup();
+                }
             }
             else if (appState.selectedTreeIndex >= 0)
             {
