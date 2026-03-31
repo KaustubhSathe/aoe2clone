@@ -95,7 +95,9 @@ constexpr float DRAG_THRESHOLD = 4.0f;
 
 // World-space offset applied when rendering pine tree sprites.
 // Shifts the sprite 14px left so the visual trunk aligns with the tile center.
+constexpr float MINIMAP_SIZE = 160.0f;
 constexpr glm::vec2 PINE_RENDER_OFFSET = glm::vec2(-20.0f, -10.0f);
+constexpr glm::vec2 TOWN_CENTER_RENDER_OFFSET = glm::vec2(0.0f, -65.0f);
 
 // Holds a single loaded sprite frame: its OpenGL texture handle, the frame'ss
 // index within its animation sequence, and its pixel dimensions.
@@ -122,7 +124,7 @@ struct Villager
     glm::vec2 facingDirection = glm::vec2(1.0f, 0.0f); // Normalized direction vector used to pick the correct animation row
     bool selected = false;                              // True when this unit has been clicked or drag-selected
     bool moving = false;                                // True while the unit is travelling toward targetPosition
-    float moveSpeed = TILE_WORLD_STEP * 0.8f * 1.7f * 100.0f;  // World-space units per second (~72.7 units/sec)
+    float moveSpeed = TILE_WORLD_STEP * 0.8f * 1.7f * 1.0f;  // World-space units per second (~72.7 units/sec)
     float walkAnimTimer = 0.0f;                         // Accumulates elapsed time to know when to advance the animation frame
     int walkFrameIndex = 0;                             // Current frame within the 30-frame walk cycle
     std::deque<glm::vec2> waypointQueue;               // Shift+RClick queued destinations — popped in order after each arrival
@@ -133,11 +135,21 @@ struct Villager
 // Represents a static pine tree obstacle placed on the map.
 struct PineTree
 {
-    glm::ivec2 tile = glm::ivec2(0);     // Tile-space grid coordinate — used for collision/pathfinding
+    glm::ivec2 tile = glm::ivec2(0);      // Tile-space grid coordinate — used for collision/pathfinding
     glm::vec2 position = glm::vec2(0.0f); // World-space position (pre-computed from tile via tile_to_world)
     bool selected = false;                // True when this tree is the currently selected object
     int hp = 100;                         // Current health points / wood remaining
     int maxHp = 100;                      // Maximum health points / wood capacity
+};
+
+// Represents a 4x4 player structure.
+struct TownCenter
+{
+    glm::ivec2 tile = glm::ivec2(0);      // Bottom-most (south) corner of the 4x4 footprint
+    glm::vec2 position = glm::vec2(0.0f); // Pivot world-space position
+    bool selected = false;
+    int hp = 2400;
+    int maxHp = 2400;
 };
 
 // Tracks the state of the mouse drag-select box.
@@ -153,9 +165,12 @@ struct SelectionState
 // A single instance lives in main() and a raw pointer (gAppState) is shared with GLFW callbacks.
 struct AppState
 {
-    Villager villager;                                // The one player-controlled unit
-    std::vector<PineTree> pineTrees;                  // All trees on the map (obstacles + selectable objects)
-    glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f); // Pixel dimensions of the pine tree sprite (set after texture load)
+    std::vector<Villager> villagers;                  // The player's active villagers
+    std::vector<PineTree> pineTrees;                  // All trees on the map
+    std::vector<TownCenter> townCenters;              // All active Town Centers
+    
+    glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f); // Pixel dimensions of the pine tree sprite
+    glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f); // Fallback dimension, updated properly later
     SelectionState selection;                         // Current mouse drag-select state
     glm::dvec2 cursorScreen = glm::dvec2(0.0);       // Last recorded cursor position in screen space
     int selectedTreeIndex = -1;                       // Index into pineTrees of the selected tree, or -1 if none
@@ -592,39 +607,76 @@ bool tree_hit_test_screen(const PineTree& tree, const glm::dvec2& cursorScreen, 
         static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
 }
 
-// Deselects everything: the villager and all trees.
+// Deselects everything: all villagers, trees, and buildings.
 void clear_selection(AppState& appState)
 {
-    appState.villager.selected = false;
     appState.selectedTreeIndex = -1;
+    for (Villager& v : appState.villagers)
+    {
+        v.selected = false;
+    }
     for (PineTree& tree : appState.pineTrees)
     {
         tree.selected = false;
     }
+    for (TownCenter& tc : appState.townCenters)
+    {
+        tc.selected = false;
+    }
 }
 
 // Returns true if a pine tree occupies the given tile coordinate.
-// Used to prevent the villager from walking into tree tiles.
-bool is_tree_tile_blocked(const AppState& appState, const glm::ivec2& tile)
+// Returns true if the cursor falls within the axis-aligned bounding box of a town center's sprite.
+bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
 {
-    return std::any_of(
-        appState.pineTrees.begin(),
-        appState.pineTrees.end(),
-        [&](const PineTree& tree)
-        {
-            return tree.tile == tile;
-        });
+    const glm::vec2 spriteOrigin = tc.position + TOWN_CENTER_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(spriteOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(spriteOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
 }
 
-// Returns a list of world-space positions for every tile that is blocked by a tree.
-// Used to build the instanced GPU buffer that renders darker tiles under trees.
+// Returns true if a tree or building occupies the given tile coordinate.
+// Used to prevent the villager from walking into blocked tiles.
+bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
+{
+    for (const PineTree& tree : appState.pineTrees)
+    {
+        if (tree.tile == tile) return true;
+    }
+    for (const TownCenter& tc : appState.townCenters)
+    {
+        if (tile.x >= tc.tile.x && tile.x < tc.tile.x + 4 &&
+            tile.y >= tc.tile.y && tile.y < tc.tile.y + 4)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Returns a list of world-space positions for every tile that is blocked by a static object.
+// Used to build the instanced GPU buffer that renders darker tiles under objects.
 std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
 {
     std::vector<glm::vec2> blockedTiles;
-    blockedTiles.reserve(appState.pineTrees.size());
     for (const PineTree& tree : appState.pineTrees)
     {
         blockedTiles.push_back(tile_to_world(tree.tile));
+    }
+    for (const TownCenter& tc : appState.townCenters)
+    {
+        for (int dx = 0; dx < 4; dx++)
+        {
+            for (int dy = 0; dy < 4; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(tc.tile + glm::ivec2(dx, dy)));
+            }
+        }
     }
     return blockedTiles;
 }
@@ -892,6 +944,19 @@ int main()
         std::cerr << "Failed to load pine tree frame image_1x1_04.png\n";
     }
 
+    std::optional<TextureFrame> townCenterFrame = load_frame_by_index(std::filesystem::path("assets") / "b_dark_town_center_age1_x2.sld", 0);
+    if (!townCenterFrame.has_value())
+    {
+        std::cerr << "Failed to load town center frame image_1x1_0.png\n";
+    }
+    else
+    {
+        // A 4x4 tile grid width is 8 * TILE_HALF_WIDTH. We scale the sprite to precisely span the 4x4 base.
+        const float targetTCWidth = 8.0f * TILE_HALF_WIDTH;
+        const float scaleRatio = targetTCWidth / static_cast<float>(townCenterFrame->width);
+        appState.townCenterSpriteSize = glm::vec2(targetTCWidth, static_cast<float>(townCenterFrame->height) * scaleRatio);
+    }
+
     // -------------------------------------------------------------------------
     // Tree Placement
     // Scatter pine trees pseudo-randomly across the map using a hash of (x, y).
@@ -922,8 +987,31 @@ int main()
         }
     }
 
-    appState.villager.position = translations[(GRID_SIZE / 2) * GRID_SIZE + (GRID_SIZE / 2)];
-    appState.villager.targetPosition = appState.villager.position;
+    // -------------------------------------------------------------------------
+    // Player Starting Units Placement
+    // Spawn 1 Town Center and 3 Villagers
+    // -------------------------------------------------------------------------
+    TownCenter tc;
+    tc.tile = glm::ivec2(GRID_SIZE / 2, GRID_SIZE / 2);
+    // Align base 4x4 center accurately in world-space
+    float cx = static_cast<float>(tc.tile.x) + 1.5f;
+    float cy = static_cast<float>(tc.tile.y) + 1.5f;
+    tc.position = tile_to_world(glm::vec2(cx, cy));
+    appState.townCenters.push_back(tc);
+
+    for (int i = 0; i < 3; i++)
+    {
+        Villager v;
+        // Spawn them a few tiles south of the Town Center, which is 4x4 and ends at +3
+        glm::ivec2 vTile = glm::ivec2((GRID_SIZE / 2) - 1 + i, (GRID_SIZE / 2) + 5);
+        v.position = tile_to_world(vTile);
+        v.targetPosition = v.position;
+        appState.villagers.push_back(v);
+    }
+    
+    // Jump camera to Town Center
+    cameraX = tc.position.x;
+    cameraY = tc.position.y;
     const std::vector<glm::vec2> blockedTileTranslations = blocked_tile_translations(appState);
 
     // -------------------------------------------------------------------------
@@ -1125,73 +1213,76 @@ int main()
         // When a waypoint is reached, the next queued waypoint (if any) is
         // automatically popped and becomes the new target (AoE2-style queuing).
         // ---------------------------------------------------------------------
-        if (appState.villager.moving)
+        for (Villager& v : appState.villagers)
         {
-            appState.villager.walkAnimTimer += deltaTime;
-            const float frameTime = 1.0f / WALK_ANIMATION_FPS;
-            while (appState.villager.walkAnimTimer >= frameTime)
+            if (v.moving)
             {
-                appState.villager.walkAnimTimer -= frameTime;
-                appState.villager.walkFrameIndex = (appState.villager.walkFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
-            }
-
-            const glm::vec2 toTarget = appState.villager.targetPosition - appState.villager.position;
-            const float remainingDistance = glm::length(toTarget);
-            const float moveDistance = appState.villager.moveSpeed * deltaTime;
-
-            if (remainingDistance <= moveDistance)
-            {
-                if (remainingDistance > 0.001f)
+                v.walkAnimTimer += deltaTime;
+                const float frameTime = 1.0f / WALK_ANIMATION_FPS;
+                while (v.walkAnimTimer >= frameTime)
                 {
-                    appState.villager.facingDirection = glm::normalize(toTarget);
+                    v.walkAnimTimer -= frameTime;
+                    v.walkFrameIndex = (v.walkFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
                 }
-                appState.villager.position = appState.villager.targetPosition;
 
-                // Pop the next queued waypoint and keep moving, or stop.
-                if (!appState.villager.waypointQueue.empty())
+                const glm::vec2 toTarget = v.targetPosition - v.position;
+                const float remainingDistance = glm::length(toTarget);
+                const float moveDistance = v.moveSpeed * deltaTime;
+
+                if (remainingDistance <= moveDistance)
                 {
-                    const glm::vec2 nextWP = appState.villager.waypointQueue.front();
-                    appState.villager.waypointQueue.pop_front();
-                    const glm::vec2 toNext = nextWP - appState.villager.position;
-                    if (glm::length(toNext) > 1.0f)
+                    if (remainingDistance > 0.001f)
                     {
-                        appState.villager.targetPosition = nextWP;
-                        appState.villager.facingDirection = glm::normalize(toNext);
-                        appState.villager.moving = true;
+                        v.facingDirection = glm::normalize(toTarget);
+                    }
+                    v.position = v.targetPosition;
+
+                    // Pop the next queued waypoint and keep moving, or stop.
+                    if (!v.waypointQueue.empty())
+                    {
+                        const glm::vec2 nextWP = v.waypointQueue.front();
+                        v.waypointQueue.pop_front();
+                        const glm::vec2 toNext = nextWP - v.position;
+                        if (glm::length(toNext) > 1.0f)
+                        {
+                            v.targetPosition = nextWP;
+                            v.facingDirection = glm::normalize(toNext);
+                            v.moving = true;
+                        }
+                        else
+                        {
+                            v.moving = false;
+                        }
                     }
                     else
                     {
-                        appState.villager.moving = false;
+                        v.moving = false;
                     }
                 }
                 else
                 {
-                    appState.villager.moving = false;
+                    const glm::vec2 direction = toTarget / remainingDistance;
+                    const glm::vec2 nextPosition = v.position + direction * moveDistance;
+                    const std::optional<glm::ivec2> nextTile = world_to_tile(nextPosition);
+                    if (nextTile.has_value() && is_tile_blocked(appState, *nextTile))
+                    {
+                        // Blocked — cancel the entire queue
+                        v.targetPosition = v.position;
+                        v.waypointQueue.clear();
+                        v.moving = false;
+                    }
+                    else
+                    {
+                        v.facingDirection = direction;
+                        v.position = nextPosition;
+                    }
                 }
             }
             else
             {
-                const glm::vec2 direction = toTarget / remainingDistance;
-                const glm::vec2 nextPosition = appState.villager.position + direction * moveDistance;
-                const std::optional<glm::ivec2> nextTile = world_to_tile(nextPosition);
-                if (nextTile.has_value() && is_tree_tile_blocked(appState, *nextTile))
-                {
-                    // Blocked — cancel the entire queue
-                    appState.villager.targetPosition = appState.villager.position;
-                    appState.villager.waypointQueue.clear();
-                    appState.villager.moving = false;
-                }
-                else
-                {
-                    appState.villager.facingDirection = direction;
-                    appState.villager.position = nextPosition;
-                }
+                v.walkAnimTimer = 0.0f;
+                v.walkFrameIndex = 0;
             }
-        }
-        else
-        {
-            appState.villager.walkAnimTimer = 0.0f;
-            appState.villager.walkFrameIndex = 0;
         }
 
 
@@ -1200,18 +1291,48 @@ int main()
         // Recompute the 4-tile circular radius around the villager each frame.
         // ---------------------------------------------------------------------
         std::fill(appState.visible.begin(), appState.visible.end(), false);
-        const std::optional<glm::ivec2> villagerTile = world_to_tile(appState.villager.position);
-        if (villagerTile.has_value())
+        
+        // Villager visibility
+        for (const Villager& v : appState.villagers)
         {
-            const int cx = villagerTile->x;
-            const int cy = villagerTile->y;
-            const int radius = 4;
-            const int radiusSq = radius * radius;
-            for (int dy = -radius; dy <= radius; dy++)
+            const std::optional<glm::ivec2> tile = world_to_tile(v.position);
+            if (tile.has_value())
             {
-                for (int dx = -radius; dx <= radius; dx++)
+                const int cx = tile->x;
+                const int cy = tile->y;
+                const int radiusSquare = 4 * 4;
+                for (int dy = -4; dy <= 4; dy++)
                 {
-                    if (dx * dx + dy * dy <= radiusSq)
+                    for (int dx = -4; dx <= 4; dx++)
+                    {
+                        if (dx * dx + dy * dy <= radiusSquare)
+                        {
+                            const int tx = cx + dx;
+                            const int ty = cy + dy;
+                            if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
+                            {
+                                const int index = ty * GRID_SIZE + tx;
+                                appState.visible[index] = true;
+                                appState.explored[index] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Town Center visibility
+        for (const TownCenter& tc : appState.townCenters)
+        {
+            // Calculate pseudo center of 4x4
+            const int cx = tc.tile.x + 2; 
+            const int cy = tc.tile.y + 2;
+            const int radiusSquare = 8 * 8;
+            for (int dy = -8; dy <= 8; dy++)
+            {
+                for (int dx = -8; dx <= 8; dx++)
+                {
+                    if (dx * dx + dy * dy <= radiusSquare)
                     {
                         const int tx = cx + dx;
                         const int ty = cy + dy;
@@ -1255,11 +1376,34 @@ int main()
             }
         }
 
-        // Draw villager onto minimap
-        if (villagerTile.has_value())
+        // Draw town centers onto minimap
+        for (const TownCenter& tc : appState.townCenters)
         {
-            const int index = villagerTile->y * GRID_SIZE + villagerTile->x;
-            appState.minimapPixels[index] = 0xFFFF0000; // Solid blue (AABBGGRR)
+            for (int dy = 0; dy < 4; ++dy)
+            {
+                for (int dx = 0; dx < 4; ++dx)
+                {
+                    if (tc.tile.y + dy < GRID_SIZE && tc.tile.x + dx < GRID_SIZE)
+                    {
+                        const int index = (tc.tile.y + dy) * GRID_SIZE + (tc.tile.x + dx);
+                        if (appState.explored[index])
+                        {
+                            appState.minimapPixels[index] = 0xFFFF0000; // Blue (AABBGGRR)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw villagers onto minimap
+        for (const Villager& v : appState.villagers)
+        {
+            const std::optional<glm::ivec2> vTile = world_to_tile(v.position);
+            if (vTile.has_value())
+            {
+                const int index = vTile->y * GRID_SIZE + vTile->x;
+                appState.minimapPixels[index] = 0xFFFFFF00; // Cyan
+            }
         }
         
         glBindBuffer(GL_ARRAY_BUFFER, visibilityVBO);
@@ -1308,119 +1452,178 @@ int main()
         glUniform4f(tileColorLoc, 0.1f, 0.4f, 0.1f, 1.0f);
         glDrawArraysInstanced(GL_LINE_LOOP, 0, 4, GRID_SIZE * GRID_SIZE);
 
-                if (pineTreeFrame.has_value())
-                {
-            glUseProgram(spriteShaderProgram);
-            glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-            glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-            glUniform2f(spriteSizeLoc, pineTreeScale.x, pineTreeScale.y);
-
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, pineTreeFrame->texture);
-            glBindVertexArray(spriteVAO);
-
-            for (const PineTree& pineTree : appState.pineTrees)
+        // ---------------------------------------------------------------------
+        // Render Sprites (Depth Sorted)
+        // isometric depth sorting: higher world Y is drawn first (further away).
+        // ---------------------------------------------------------------------
+        struct RenderPayload {
+            int type; // 0=PineTree, 1=TownCenter, 2=Villager
+            size_t index;
+            float sortY;
+        };
+        std::vector<RenderPayload> renderQueue;
+        
+        if (pineTreeFrame.has_value())
+        {
+            for (size_t i = 0; i < appState.pineTrees.size(); i++)
             {
-                const int treeIndex = pineTree.tile.y * GRID_SIZE + pineTree.tile.x;
-                const float treeVis = appState.tileVisibilities[treeIndex];
-                if (treeVis == 0.0f)
+                const PineTree& pt = appState.pineTrees[i];
+                if (appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x] > 0.0f)
                 {
-                    continue; // Skip rendering unexplored trees
-                }
-
-                const glm::vec2 pineTreeOrigin = pineTree.position + PINE_RENDER_OFFSET;
-                glUniform1f(spriteVisLoc, treeVis);
-                glUniform2f(spritePosLoc, pineTreeOrigin.x, pineTreeOrigin.y);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-
-                if (pineTree.selected)
-                {
-                    glUseProgram(overlayShaderProgram);
-                    glUniformMatrix4fv(overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-                    glUniformMatrix4fv(overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-                    glUniform2f(overlayOffsetLoc, pineTreeOrigin.x, pineTreeOrigin.y);
-                    glUniform4f(overlayColorLoc, 1.0f, 0.1f, 0.1f, 1.0f);
-                    glBindVertexArray(pineBoundsVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, 4);
-
-                    glUniform2f(overlayOffsetLoc, pineTree.position.x + PINE_RENDER_OFFSET.x, pineTree.position.y - 4.0f);
-                    glUniform4f(overlayColorLoc, 0.95f, 0.18f, 0.18f, 1.0f);
-                    glBindVertexArray(selectionVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
-
-                    glUseProgram(spriteShaderProgram);
-                    glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-                    glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-                    glUniform2f(spriteSizeLoc, pineTreeScale.x, pineTreeScale.y);
-                    glUniform1f(spriteVisLoc, treeVis);
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, pineTreeFrame->texture);
-                    glBindVertexArray(spriteVAO);
+                    // Sort anchored at the bottom of the tree
+                    renderQueue.push_back({0, i, pt.position.y + PINE_RENDER_OFFSET.y});
                 }
             }
         }
-
-        const AnimationSet& activeAnimation = appState.villager.moving ? walkAnimation : idleAnimation;
-        if (!activeAnimation.frames.empty())
+        
+        if (townCenterFrame.has_value())
         {
-            const int frameIndex = appState.villager.moving
-                ? walk_animation_index(appState.villager.facingDirection, appState.villager.walkFrameIndex, static_cast<int>(walkAnimation.frames.size()))
-                : facing_index_from_direction(appState.villager.facingDirection, static_cast<int>(idleAnimation.frames.size()));
-            const TextureFrame& activeFrame = activeAnimation.frames[static_cast<size_t>(frameIndex)];
-            const glm::vec2 spriteOrigin = appState.villager.position + glm::vec2(0.0f, -TILE_HALF_HEIGHT);
-
-            glUseProgram(spriteShaderProgram);
-            glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-            glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-            glUniform1f(spriteVisLoc, 1.0f); // Villager is always fully lit
-            glUniform2f(spritePosLoc, spriteOrigin.x, spriteOrigin.y);
-            glUniform2f(spriteSizeLoc, spriteScale.x, spriteScale.y);
-
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, activeFrame.texture);
-            glBindVertexArray(spriteVAO);
-            glDrawArrays(GL_TRIANGLES, 0, 6);
-
-            if (appState.villager.selected)
+            for (size_t i = 0; i < appState.townCenters.size(); i++)
             {
-                glUseProgram(overlayShaderProgram);
-                glUniformMatrix4fv(overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-                glUniformMatrix4fv(overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-                glUniform2f(overlayOffsetLoc, appState.villager.position.x, appState.villager.position.y - 22.0f);
+                const TownCenter& tc = appState.townCenters[i];
+                const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                if (tcIndex >= 0 && tcIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[tcIndex] > 0.0f)
+                {
+                    renderQueue.push_back({1, i, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y});
+                }
+            }
+        }
+        
+        for (size_t i = 0; i < appState.villagers.size(); i++)
+        {
+            renderQueue.push_back({2, i, appState.villagers[i].position.y});
+        }
+        
+        std::sort(renderQueue.begin(), renderQueue.end(), [](const RenderPayload& a, const RenderPayload& b) {
+            return a.sortY > b.sortY;
+        });
+
+        // --- Phase 1: Draw Sprites ---
+        glUseProgram(spriteShaderProgram);
+        glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        glBindVertexArray(spriteVAO);
+        
+        for (const RenderPayload& payload : renderQueue)
+        {
+            if (payload.type == 0) // Pine Tree
+            {
+                const PineTree& pt = appState.pineTrees[payload.index];
+                const float treeVis = appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x];
+                glUniform2f(spriteSizeLoc, pineTreeScale.x, pineTreeScale.y);
+                glUniform1f(spriteVisLoc, treeVis);
+                
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, pineTreeFrame->texture);
+                glUniform2f(spritePosLoc, pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y + PINE_RENDER_OFFSET.y);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+            else if (payload.type == 1) // Town Center
+            {
+                const TownCenter& tc = appState.townCenters[payload.index];
+                const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                glUniform2f(spriteSizeLoc, appState.townCenterSpriteSize.x, appState.townCenterSpriteSize.y);
+                glUniform1f(spriteVisLoc, appState.tileVisibilities[tcIndex]);
+                
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, townCenterFrame->texture);
+                glUniform2f(spritePosLoc, tc.position.x + TOWN_CENTER_RENDER_OFFSET.x, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+            else if (payload.type == 2) // Villager
+            {
+                const Villager& v = appState.villagers[payload.index];
+                const AnimationSet& activeAnimation = v.moving ? walkAnimation : idleAnimation;
+                if (!activeAnimation.frames.empty())
+                {
+                    const int frameIndex = v.moving
+                        ? walk_animation_index(v.facingDirection, v.walkFrameIndex, static_cast<int>(walkAnimation.frames.size()))
+                        : facing_index_from_direction(v.facingDirection, static_cast<int>(idleAnimation.frames.size()));
+                    const TextureFrame& activeFrame = activeAnimation.frames[static_cast<size_t>(frameIndex)];
+                    
+                    glUniform2f(spriteSizeLoc, spriteScale.x, spriteScale.y);
+                    glUniform1f(spriteVisLoc, 1.0f); // Always lit
+                    
+                    glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, activeFrame.texture);
+                    // Standard offset used by Villagers (they pivot around TILE_HALF_HEIGHT)
+                    glUniform2f(spritePosLoc, v.position.x, v.position.y - TILE_HALF_HEIGHT);
+                    glDrawArrays(GL_TRIANGLES, 0, 6);
+                }
+            }
+        }
+        
+        // --- Phase 2: Draw Overlays (Selections, Debug Bounds, Waypoints) ---
+        glUseProgram(overlayShaderProgram);
+        glUniformMatrix4fv(overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+        
+        for (const PineTree& pt : appState.pineTrees)
+        {
+            if (pt.selected)
+            {
+                const glm::vec2 pineTreeOrigin = pt.position + PINE_RENDER_OFFSET;
+                glUniform2f(overlayOffsetLoc, pineTreeOrigin.x, pineTreeOrigin.y);
+                glUniform4f(overlayColorLoc, 1.0f, 0.1f, 0.1f, 1.0f);
+                glBindVertexArray(pineBoundsVAO);
+                glDrawArrays(GL_LINE_LOOP, 0, 4);
+
+                glUniform2f(overlayOffsetLoc, pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y - 4.0f);
+                glUniform4f(overlayColorLoc, 0.95f, 0.18f, 0.18f, 1.0f);
+                glBindVertexArray(selectionVAO);
+                glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+            }
+        }
+        
+        for (const TownCenter& tc : appState.townCenters)
+        {
+            const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+            if (tcIndex >= 0 && tcIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[tcIndex] > 0.0f) 
+            {
+                glm::vec2 renderPos = tc.position + TOWN_CENTER_RENDER_OFFSET;
+                glUniform2f(overlayOffsetLoc, renderPos.x, renderPos.y);
+                glUniform4f(overlayColorLoc, 1.0f, 0.0f, 0.0f, 1.0f);
+                const float hw = appState.townCenterSpriteSize.x * 0.5f;
+                const float h = appState.townCenterSpriteSize.y;
+                const float borderRect[] = { -hw, 0.0f, hw, 0.0f, hw, h, -hw, h };
+                glBindBuffer(GL_ARRAY_BUFFER, rectVBO);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderRect), borderRect);
+                glBindVertexArray(rectVAO);
+                glDrawArrays(GL_LINE_LOOP, 0, 4);
+                
+                if (tc.selected)
+                {
+                    // Placeholder for actual town center selection circle
+                }
+            }
+        }
+        
+        for (const Villager& v : appState.villagers)
+        {
+            if (v.selected)
+            {
+                glUniform2f(overlayOffsetLoc, v.position.x, v.position.y - 22.0f);
                 glUniform4f(overlayColorLoc, 0.1f, 1.0f, 0.1f, 1.0f);
                 glBindVertexArray(selectionVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
             }
 
-            // Draw waypoint markers: current target + all queued waypoints.
-            // Each is a small diamond outline; a line connects them in order.
-            if (appState.villager.selected && appState.villager.moving)
+            if (v.selected && v.moving)
             {
-                // Build the ordered list: current target first, then queued waypoints.
                 std::vector<glm::vec2> allWPs;
-                allWPs.reserve(1 + appState.villager.waypointQueue.size());
-                allWPs.push_back(appState.villager.targetPosition);
-                for (const glm::vec2& wp : appState.villager.waypointQueue)
+                allWPs.reserve(1 + v.waypointQueue.size());
+                allWPs.push_back(v.targetPosition);
+                for (const glm::vec2& wp : v.waypointQueue)
                 {
                     allWPs.push_back(wp);
                 }
 
-                glUseProgram(overlayShaderProgram);
-                glUniformMatrix4fv(overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
-                glUniformMatrix4fv(overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
-
-                // Draw a small diamond at each waypoint.
-                constexpr float wpHW = 8.0f;
-                constexpr float wpHH = 4.0f;
-                // Reuse a simple 4-point diamond defined inline (LINE_LOOP).
-                // We draw it as 4 vertices: top, right, bottom, left.
-                // Instead of creating a new VAO, we batch via the existing selectionVAO
-                // by scaling via uOffset — but the simplest approach is a temp VBO.
-                // We'll use a small static local VBO allocated once.
                 static unsigned int wpVAO = 0;
                 static unsigned int wpVBO = 0;
                 if (wpVAO == 0)
                 {
+                    const float wpHW = 8.0f;
+                    const float wpHH = 4.0f;
                     const float diamond[] = {
                          0.0f,  wpHH,
                          wpHW,  0.0f,
@@ -1436,13 +1639,11 @@ int main()
                     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
                 }
 
-                // Draw line strip connecting villager -> each waypoint in order.
                 {
-                    // Build a temporary line-strip VBO: villager pos + all waypoints.
                     std::vector<float> lineVerts;
                     lineVerts.reserve((1 + allWPs.size()) * 2);
-                    lineVerts.push_back(appState.villager.position.x);
-                    lineVerts.push_back(appState.villager.position.y);
+                    lineVerts.push_back(v.position.x);
+                    lineVerts.push_back(v.position.y);
                     for (const glm::vec2& wp : allWPs)
                     {
                         lineVerts.push_back(wp.x);
@@ -1470,13 +1671,11 @@ int main()
                     glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(lineVerts.size() / 2));
                 }
 
-                // Draw diamond at each waypoint.
                 glBindVertexArray(wpVAO);
                 for (size_t i = 0; i < allWPs.size(); ++i)
                 {
                     const glm::vec2& wp = allWPs[i];
                     glUniform2f(overlayOffsetLoc, wp.x, wp.y);
-                    // First waypoint (current target) is brighter.
                     if (i == 0)
                         glUniform4f(overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
                     else
@@ -1554,9 +1753,30 @@ int main()
 
             ImGui::TableNextRow();
 
+            int selectedVillagerCount = 0;
+            Villager* firstSelectedVillager = nullptr;
+            for (Villager& v : appState.villagers) 
+            {
+                if (v.selected) 
+                {
+                    selectedVillagerCount++;
+                    if (!firstSelectedVillager) firstSelectedVillager = &v;
+                }
+            }
+
+            TownCenter* firstSelectedTC = nullptr;
+            for (TownCenter& tc : appState.townCenters)
+            {
+                if (tc.selected)
+                {
+                    firstSelectedTC = &tc;
+                    break;
+                }
+            }
+
             // --- Column 0: Commands ---
             ImGui::TableSetColumnIndex(0);
-            if (appState.villager.selected)
+            if (firstSelectedVillager)
             {
                 if (ImGui::Button("Chop Wood", ImVec2(80, 40))) { /* placeholder */ }
                 ImGui::SameLine();
@@ -1568,22 +1788,41 @@ int main()
                 ImGui::SameLine();
                 if (ImGui::Button("Stop", ImVec2(80, 40))) 
                 {
-                    appState.villager.waypointQueue.clear();
-                    appState.villager.moving = false;
-                    appState.villager.targetPosition = appState.villager.position;
+                    for (Villager& v : appState.villagers)
+                    {
+                        if (v.selected)
+                        {
+                            v.waypointQueue.clear();
+                            v.moving = false;
+                            v.targetPosition = v.position;
+                        }
+                    }
                 }
             }
 
             // --- Column 1: Details ---
             ImGui::TableSetColumnIndex(1);
-            if (appState.villager.selected)
+            if (firstSelectedVillager)
             {
-                ImGui::Text("Villager");
+                if (selectedVillagerCount > 1)
+                {
+                    ImGui::Text("Villagers (%d)", selectedVillagerCount);
+                }
+                else
+                {
+                    ImGui::Text("Villager");
+                }
                 char hpText[32];
-                snprintf(hpText, sizeof(hpText), "%d / %d", appState.villager.hp, appState.villager.maxHp);
-                ImGui::ProgressBar(static_cast<float>(appState.villager.hp) / static_cast<float>(appState.villager.maxHp), ImVec2(200.0f, 20.0f), hpText);
+                snprintf(hpText, sizeof(hpText), "%d / %d", firstSelectedVillager->hp, firstSelectedVillager->maxHp);
+                ImGui::ProgressBar(static_cast<float>(firstSelectedVillager->hp) / static_cast<float>(firstSelectedVillager->maxHp), ImVec2(200.0f, 20.0f), hpText);
                 ImGui::Text("Attack: 3");
-                ImGui::Text("Armor: 0/0");
+            }
+            else if (firstSelectedTC)
+            {
+                ImGui::Text("Town Center");
+                char hpText[32];
+                snprintf(hpText, sizeof(hpText), "%d / %d", firstSelectedTC->hp, firstSelectedTC->maxHp);
+                ImGui::ProgressBar(static_cast<float>(firstSelectedTC->hp) / static_cast<float>(firstSelectedTC->maxHp), ImVec2(200.0f, 20.0f), hpText);
             }
             else if (appState.selectedTreeIndex >= 0)
             {
@@ -1824,12 +2063,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
-        const glm::vec2 villagerScreenPosition = world_to_screen(gAppState->villager.position);
-
         if (gAppState->selection.dragging && gAppState->selection.moved)
         {
             clear_selection(*gAppState);
-            gAppState->villager.selected = point_in_drag_rect(villagerScreenPosition, gAppState->selection);
+            for (Villager& v : gAppState->villagers)
+            {
+                const glm::vec2 vsp = world_to_screen(v.position);
+                v.selected = point_in_drag_rect(vsp, gAppState->selection);
+            }
         }
         else
         {
@@ -1854,7 +2095,34 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             }
             else
             {
-                gAppState->villager.selected = villager_hit_test_screen(villagerScreenPosition, gAppState->cursorScreen);
+                int clickedTCIndex = -1;
+                for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+                {
+                    const TownCenter& tc = gAppState->townCenters[i];
+                    const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                    if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
+                    {
+                        clickedTCIndex = i;
+                        break;
+                    }
+                }
+                
+                if (clickedTCIndex >= 0)
+                {
+                    gAppState->townCenters[static_cast<size_t>(clickedTCIndex)].selected = true;
+                }
+                else
+                {
+                    for (Villager& v : gAppState->villagers)
+                    {
+                        const glm::vec2 vsp = world_to_screen(v.position);
+                        if (villager_hit_test_screen(vsp, gAppState->cursorScreen))
+                        {
+                            v.selected = true;
+                            break; // Select only one villager on a single click
+                        }
+                    }
+                }
             }
         }
 
@@ -1862,42 +2130,62 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         gAppState->selection.moved = false;
     }
 
-    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS && gAppState->villager.selected)
+    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
     {
-        const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
-        const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
-        if (!targetTile.has_value() || is_tree_tile_blocked(*gAppState, *targetTile))
+        bool anySelected = false;
+        for (const Villager& v : gAppState->villagers) 
         {
-            // Invalid tile — cancel all movement.
-            gAppState->villager.targetPosition = gAppState->villager.position;
-            gAppState->villager.waypointQueue.clear();
-            gAppState->villager.moving = false;
-            return;
+            if (v.selected) anySelected = true;
         }
 
-        const glm::vec2 moveTarget = tile_to_world(*targetTile);
-        const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
-
-        if (shiftHeld && gAppState->villager.moving)
+        if (anySelected)
         {
-            // Shift+RClick: append to waypoint queue.
-            gAppState->villager.waypointQueue.push_back(moveTarget);
-        }
-        else
-        {
-            // Plain RClick or not yet moving: clear queue, set new immediate target.
-            gAppState->villager.waypointQueue.clear();
-            const glm::vec2 toTarget = moveTarget - gAppState->villager.position;
-            if (glm::length(toTarget) > 1.0f)
+            const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
+            const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
+            if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
             {
-                gAppState->villager.targetPosition = moveTarget;
-                gAppState->villager.facingDirection = glm::normalize(toTarget);
-                gAppState->villager.moving = true;
+                // Invalid tile — cancel all movement.
+                for (Villager& v : gAppState->villagers)
+                {
+                    if (v.selected)
+                    {
+                        v.targetPosition = v.position;
+                        v.waypointQueue.clear();
+                        v.moving = false;
+                    }
+                }
+                return;
             }
-            else
+
+            const glm::vec2 moveTarget = tile_to_world(*targetTile);
+            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+
+            for (Villager& v : gAppState->villagers)
             {
-                gAppState->villager.targetPosition = gAppState->villager.position;
-                gAppState->villager.moving = false;
+                if (!v.selected) continue;
+
+                if (shiftHeld && v.moving)
+                {
+                    // Shift+RClick: append to waypoint queue.
+                    v.waypointQueue.push_back(moveTarget);
+                }
+                else
+                {
+                    // Plain RClick or not yet moving: clear queue, set new immediate target.
+                    v.waypointQueue.clear();
+                    const glm::vec2 toTarget = moveTarget - v.position;
+                    if (glm::length(toTarget) > 1.0f)
+                    {
+                        v.targetPosition = moveTarget;
+                        v.facingDirection = glm::normalize(toTarget);
+                        v.moving = true;
+                    }
+                    else
+                    {
+                        v.targetPosition = v.position;
+                        v.moving = false;
+                    }
+                }
             }
         }
     }
