@@ -122,7 +122,7 @@ struct Villager
     glm::vec2 facingDirection = glm::vec2(1.0f, 0.0f); // Normalized direction vector used to pick the correct animation row
     bool selected = false;                              // True when this unit has been clicked or drag-selected
     bool moving = false;                                // True while the unit is travelling toward targetPosition
-    float moveSpeed = TILE_WORLD_STEP * 0.8f * 1.7f;  // World-space units per second (~72.7 units/sec)
+    float moveSpeed = TILE_WORLD_STEP * 0.8f * 1.7f * 100.0f;  // World-space units per second (~72.7 units/sec)
     float walkAnimTimer = 0.0f;                         // Accumulates elapsed time to know when to advance the animation frame
     int walkFrameIndex = 0;                             // Current frame within the 30-frame walk cycle
     std::deque<glm::vec2> waypointQueue;               // Shift+RClick queued destinations — popped in order after each arrival
@@ -155,6 +155,11 @@ struct AppState
     SelectionState selection;                         // Current mouse drag-select state
     glm::dvec2 cursorScreen = glm::dvec2(0.0);       // Last recorded cursor position in screen space
     int selectedTreeIndex = -1;                       // Index into pineTrees of the selected tree, or -1 if none
+    
+    std::vector<bool> explored;                       // True if the tile has been explored at any point
+    std::vector<bool> visible;                        // True if the tile is currently in line of sight
+    std::vector<float> tileVisibilities;              // Flattened GPU array (1.0 = visible, 0.5 = fog, 0.0 = unexplored)
+
     int food = 200;    // Resource counts displayed in the HUD
     int wood = 200;
     int stone = 150;
@@ -645,25 +650,30 @@ const char* tileVertexShaderSource = R"(
     #version 330 core
     layout (location = 0) in vec2 aPos;
     layout (location = 1) in vec2 aOffset;
+    layout (location = 2) in float aVisibility;
 
     uniform mat4 uProjection;
     uniform mat4 uView;
+
+    out float vVisibility;
 
     void main()
     {
         vec2 worldPos = aPos + aOffset;
         gl_Position = uProjection * uView * vec4(worldPos, 0.0, 1.0);
+        vVisibility = aVisibility;
     }
 )";
 
 const char* tileFragmentShaderSource = R"(
     #version 330 core
+    in float vVisibility;
     out vec4 FragColor;
     uniform vec4 uColor;
 
     void main()
     {
-        FragColor = uColor;
+        FragColor = uColor * vec4(vVisibility, vVisibility, vVisibility, 1.0);
     }
 )";
 
@@ -693,6 +703,7 @@ const char* spriteFragmentShaderSource = R"(
     out vec4 FragColor;
 
     uniform sampler2D uTexture;
+    uniform float uVisibility;
 
     void main()
     {
@@ -701,7 +712,7 @@ const char* spriteFragmentShaderSource = R"(
         {
             discard;
         }
-        FragColor = color;
+        FragColor = color * vec4(uVisibility, uVisibility, uVisibility, 1.0);
     }
 )";
 
@@ -777,6 +788,9 @@ int main()
     }
 
     AppState appState;
+    appState.explored.resize(GRID_SIZE * GRID_SIZE, false);
+    appState.visible.resize(GRID_SIZE * GRID_SIZE, false);
+    appState.tileVisibilities.resize(GRID_SIZE * GRID_SIZE, 0.0f);
     gAppState = &appState;
 
     IMGUI_CHECKVERSION();
@@ -903,6 +917,7 @@ int main()
     unsigned int outlineVAO = 0;
     unsigned int outlineVBO = 0;
     unsigned int instanceVBO = 0;
+    unsigned int visibilityVBO = 0;
     unsigned int blockedTileVAO = 0;
     unsigned int blockedTileVBO = 0;
     unsigned int blockedInstanceVBO = 0;
@@ -911,6 +926,7 @@ int main()
     glGenVertexArrays(1, &outlineVAO);
     glGenBuffers(1, &outlineVBO);
     glGenBuffers(1, &instanceVBO);
+    glGenBuffers(1, &visibilityVBO);
     glGenVertexArrays(1, &blockedTileVAO);
     glGenBuffers(1, &blockedTileVBO);
     glGenBuffers(1, &blockedInstanceVBO);
@@ -927,6 +943,12 @@ int main()
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
     glVertexAttribDivisor(1, 1);
 
+    glBindBuffer(GL_ARRAY_BUFFER, visibilityVBO);
+    glBufferData(GL_ARRAY_BUFFER, appState.tileVisibilities.size() * sizeof(float), appState.tileVisibilities.data(), GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glVertexAttribDivisor(2, 1);
+
     glBindVertexArray(outlineVAO);
     glBindBuffer(GL_ARRAY_BUFFER, outlineVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(tileOutline), tileOutline, GL_STATIC_DRAW);
@@ -937,6 +959,11 @@ int main()
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
     glVertexAttribDivisor(1, 1);
+
+    glBindBuffer(GL_ARRAY_BUFFER, visibilityVBO);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void*)0);
+    glVertexAttribDivisor(2, 1);
 
     glBindVertexArray(blockedTileVAO);
     glBindBuffer(GL_ARRAY_BUFFER, blockedTileVBO);
@@ -1013,6 +1040,7 @@ int main()
     const GLint spriteViewLoc = glGetUniformLocation(spriteShaderProgram, "uView");
     const GLint spritePosLoc = glGetUniformLocation(spriteShaderProgram, "uSpritePos");
     const GLint spriteSizeLoc = glGetUniformLocation(spriteShaderProgram, "uSpriteSize");
+    const GLint spriteVisLoc = glGetUniformLocation(spriteShaderProgram, "uVisibility");
 
     const GLint overlayProjLoc = glGetUniformLocation(overlayShaderProgram, "uProjection");
     const GLint overlayViewLoc = glGetUniformLocation(overlayShaderProgram, "uView");
@@ -1145,6 +1173,57 @@ int main()
             appState.villager.walkFrameIndex = 0;
         }
 
+
+        // ---------------------------------------------------------------------
+        // Line of Sight Update (Fog of War)
+        // Recompute the 4-tile circular radius around the villager each frame.
+        // ---------------------------------------------------------------------
+        std::fill(appState.visible.begin(), appState.visible.end(), false);
+        const std::optional<glm::ivec2> villagerTile = world_to_tile(appState.villager.position);
+        if (villagerTile.has_value())
+        {
+            const int cx = villagerTile->x;
+            const int cy = villagerTile->y;
+            const int radius = 4;
+            const int radiusSq = radius * radius;
+            for (int dy = -radius; dy <= radius; dy++)
+            {
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    if (dx * dx + dy * dy <= radiusSq)
+                    {
+                        const int tx = cx + dx;
+                        const int ty = cy + dy;
+                        if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
+                        {
+                            const int index = ty * GRID_SIZE + tx;
+                            appState.visible[index] = true;
+                            appState.explored[index] = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
+        {
+            if (appState.visible[i])
+            {
+                appState.tileVisibilities[i] = 1.0f;
+            }
+            else if (appState.explored[i])
+            {
+                appState.tileVisibilities[i] = 0.5f;
+            }
+            else
+            {
+                appState.tileVisibilities[i] = 0.0f;
+            }
+        }
+        
+        glBindBuffer(GL_ARRAY_BUFFER, visibilityVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, appState.tileVisibilities.size() * sizeof(float), appState.tileVisibilities.data());
+
         // ---------------------------------------------------------------------
         // Render Pass
         // Build the camera matrices and draw everything in back-to-front order:
@@ -1198,7 +1277,15 @@ int main()
 
             for (const PineTree& pineTree : appState.pineTrees)
             {
+                const int treeIndex = pineTree.tile.y * GRID_SIZE + pineTree.tile.x;
+                const float treeVis = appState.tileVisibilities[treeIndex];
+                if (treeVis == 0.0f)
+                {
+                    continue; // Skip rendering unexplored trees
+                }
+
                 const glm::vec2 pineTreeOrigin = pineTree.position + PINE_RENDER_OFFSET;
+                glUniform1f(spriteVisLoc, treeVis);
                 glUniform2f(spritePosLoc, pineTreeOrigin.x, pineTreeOrigin.y);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
 
@@ -1221,6 +1308,7 @@ int main()
                     glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
                     glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
                     glUniform2f(spriteSizeLoc, pineTreeScale.x, pineTreeScale.y);
+                    glUniform1f(spriteVisLoc, treeVis);
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, pineTreeFrame->texture);
                     glBindVertexArray(spriteVAO);
@@ -1240,6 +1328,7 @@ int main()
             glUseProgram(spriteShaderProgram);
             glUniformMatrix4fv(spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
             glUniformMatrix4fv(spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+            glUniform1f(spriteVisLoc, 1.0f); // Villager is always fully lit
             glUniform2f(spritePosLoc, spriteOrigin.x, spriteOrigin.y);
             glUniform2f(spriteSizeLoc, spriteScale.x, spriteScale.y);
 
@@ -1564,7 +1653,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             int clickedTreeIndex = -1;
             for (int i = static_cast<int>(gAppState->pineTrees.size()) - 1; i >= 0; i--)
             {
-                if (tree_hit_test_screen(gAppState->pineTrees[static_cast<size_t>(i)], gAppState->cursorScreen, gAppState->pineTreeSpriteSize))
+                const PineTree& tree = gAppState->pineTrees[static_cast<size_t>(i)];
+                const int treeIndex = tree.tile.y * GRID_SIZE + tree.tile.x;
+                if (gAppState->tileVisibilities[treeIndex] > 0.0f && tree_hit_test_screen(tree, gAppState->cursorScreen, gAppState->pineTreeSpriteSize))
                 {
                     clickedTreeIndex = i;
                     break;
