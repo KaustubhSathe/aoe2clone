@@ -126,6 +126,8 @@ struct Villager
     float walkAnimTimer = 0.0f;                         // Accumulates elapsed time to know when to advance the animation frame
     int walkFrameIndex = 0;                             // Current frame within the 30-frame walk cycle
     std::deque<glm::vec2> waypointQueue;               // Shift+RClick queued destinations — popped in order after each arrival
+    int hp = 25;                                        // Current health points
+    int maxHp = 25;                                     // Maximum health points
 };
 
 // Represents a static pine tree obstacle placed on the map.
@@ -134,6 +136,8 @@ struct PineTree
     glm::ivec2 tile = glm::ivec2(0);     // Tile-space grid coordinate — used for collision/pathfinding
     glm::vec2 position = glm::vec2(0.0f); // World-space position (pre-computed from tile via tile_to_world)
     bool selected = false;                // True when this tree is the currently selected object
+    int hp = 100;                         // Current health points / wood remaining
+    int maxHp = 100;                      // Maximum health points / wood capacity
 };
 
 // Tracks the state of the mouse drag-select box.
@@ -159,6 +163,9 @@ struct AppState
     std::vector<bool> explored;                       // True if the tile has been explored at any point
     std::vector<bool> visible;                        // True if the tile is currently in line of sight
     std::vector<float> tileVisibilities;              // Flattened GPU array (1.0 = visible, 0.5 = fog, 0.0 = unexplored)
+    
+    std::vector<uint32_t> minimapPixels;              // 200x200 ABGR pixels for minimap texture (0xAABBGGRR)
+    GLuint minimapTexture = 0;                        // OpenGL texture ID for the minimap
 
     int food = 200;    // Resource counts displayed in the HUD
     int wood = 200;
@@ -764,7 +771,11 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "AoE2 Clone - Isometric Platform", nullptr, nullptr);
+    GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+    SCR_WIDTH = mode->width;
+    SCR_HEIGHT = mode->height;
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "AoE2 Clone - Isometric Platform", primaryMonitor, nullptr);
     if (window == nullptr)
     {
         std::cerr << "Failed to create GLFW window\n";
@@ -791,6 +802,16 @@ int main()
     appState.explored.resize(GRID_SIZE * GRID_SIZE, false);
     appState.visible.resize(GRID_SIZE * GRID_SIZE, false);
     appState.tileVisibilities.resize(GRID_SIZE * GRID_SIZE, 0.0f);
+    appState.minimapPixels.resize(GRID_SIZE * GRID_SIZE, 0xFF000000); // Opaque black background
+
+    glGenTextures(1, &appState.minimapTexture);
+    glBindTexture(GL_TEXTURE_2D, appState.minimapTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // Setting up the texture using RGBA format. 
+    // Data is provided directly from our CPU-side pixel buffer, which we'll update and push via glTexSubImage2D later.
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, GRID_SIZE, GRID_SIZE, 0, GL_RGBA, GL_UNSIGNED_BYTE, appState.minimapPixels.data());
+
     gAppState = &appState;
 
     IMGUI_CHECKVERSION();
@@ -1210,19 +1231,42 @@ int main()
             if (appState.visible[i])
             {
                 appState.tileVisibilities[i] = 1.0f;
+                appState.minimapPixels[i] = 0xFF00AA00; // Bright green (AABBGGRR)
             }
             else if (appState.explored[i])
             {
                 appState.tileVisibilities[i] = 0.5f;
+                appState.minimapPixels[i] = 0xFF003300; // Dark green (AABBGGRR)
             }
             else
             {
                 appState.tileVisibilities[i] = 0.0f;
+                appState.minimapPixels[i] = 0xFF000000; // Opaque black
             }
+        }
+        
+        // Draw trees onto minimap
+        for (const PineTree& tree : appState.pineTrees)
+        {
+            const int index = tree.tile.y * GRID_SIZE + tree.tile.x;
+            if (appState.explored[index])
+            {
+                appState.minimapPixels[index] = 0xFF004400; // Even darker green for trees
+            }
+        }
+
+        // Draw villager onto minimap
+        if (villagerTile.has_value())
+        {
+            const int index = villagerTile->y * GRID_SIZE + villagerTile->x;
+            appState.minimapPixels[index] = 0xFFFF0000; // Solid blue (AABBGGRR)
         }
         
         glBindBuffer(GL_ARRAY_BUFFER, visibilityVBO);
         glBufferSubData(GL_ARRAY_BUFFER, 0, appState.tileVisibilities.size() * sizeof(float), appState.tileVisibilities.data());
+
+        glBindTexture(GL_TEXTURE_2D, appState.minimapTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GRID_SIZE, GRID_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, appState.minimapPixels.data());
 
         // ---------------------------------------------------------------------
         // Render Pass
@@ -1484,6 +1528,147 @@ int main()
         ImGui::Text("Stone: %d", appState.stone);
         ImGui::SameLine(330.0f);
         ImGui::Text("Gold: %d", appState.gold);
+        ImGui::End();
+
+        // ---------------------------------------------------------------------
+        // Bottom UI Panel
+        // ---------------------------------------------------------------------
+        const float bottomPanelHeight = 180.0f;
+        ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + viewport->Size.y - bottomPanelHeight));
+        ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, bottomPanelHeight));
+        ImGui::SetNextWindowBgAlpha(1.0f);
+        ImGuiWindowFlags bottomFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
+        
+        // Remove default window padding so the table touches the absolute top and bottom edges
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        ImGui::Begin("BottomPanel", nullptr, bottomFlags);
+        ImGui::PopStyleVar();
+        
+        // Force the table to take up the full panel height so separators draw to the bottom
+        if (ImGui::BeginTable("bottom_table", 3, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit, ImVec2(0.0f, bottomPanelHeight)))
+        {
+            ImGui::TableSetupColumn("Commands", ImGuiTableColumnFlags_WidthFixed, 320.0f);
+            ImGui::TableSetupColumn("Selection Info", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Minimap", ImGuiTableColumnFlags_WidthFixed, 320.0f);
+            ImGui::TableHeadersRow();
+
+            ImGui::TableNextRow();
+
+            // --- Column 0: Commands ---
+            ImGui::TableSetColumnIndex(0);
+            if (appState.villager.selected)
+            {
+                if (ImGui::Button("Chop Wood", ImVec2(80, 40))) { /* placeholder */ }
+                ImGui::SameLine();
+                if (ImGui::Button("Build House", ImVec2(80, 40))) { /* placeholder */ }
+                ImGui::SameLine();
+                if (ImGui::Button("Build Mill", ImVec2(80, 40))) { /* placeholder */ }
+                
+                if (ImGui::Button("Farm", ImVec2(80, 40))) { /* placeholder */ }
+                ImGui::SameLine();
+                if (ImGui::Button("Stop", ImVec2(80, 40))) 
+                {
+                    appState.villager.waypointQueue.clear();
+                    appState.villager.moving = false;
+                    appState.villager.targetPosition = appState.villager.position;
+                }
+            }
+
+            // --- Column 1: Details ---
+            ImGui::TableSetColumnIndex(1);
+            if (appState.villager.selected)
+            {
+                ImGui::Text("Villager");
+                char hpText[32];
+                snprintf(hpText, sizeof(hpText), "%d / %d", appState.villager.hp, appState.villager.maxHp);
+                ImGui::ProgressBar(static_cast<float>(appState.villager.hp) / static_cast<float>(appState.villager.maxHp), ImVec2(200.0f, 20.0f), hpText);
+                ImGui::Text("Attack: 3");
+                ImGui::Text("Armor: 0/0");
+            }
+            else if (appState.selectedTreeIndex >= 0)
+            {
+                ImGui::Text("Pine Tree");
+                const PineTree& tree = appState.pineTrees[static_cast<size_t>(appState.selectedTreeIndex)];
+                char hpText[32];
+                snprintf(hpText, sizeof(hpText), "Wood: %d", tree.hp);
+                ImGui::ProgressBar(static_cast<float>(tree.hp) / static_cast<float>(tree.maxHp), ImVec2(200.0f, 20.0f), hpText);
+            }
+
+            // --- Column 2: Minimap ---
+            ImGui::TableSetColumnIndex(2);
+            ImVec2 curPos = ImGui::GetCursorScreenPos();
+            float mmW = 260.0f;
+            float mmH = 130.0f;
+            
+            // Center within the 320.0f column width constraint
+            curPos.x += (320.0f - mmW) / 2.0f;
+            curPos.y += 10.0f;
+            
+            ImGui::InvisibleButton("minimap_area", ImVec2(mmW, mmH));
+            
+            ImVec2 p1(curPos.x + mmW / 2.0f, curPos.y);                  // Top
+            ImVec2 p2(curPos.x + mmW, curPos.y + mmH / 2.0f);            // Right
+            ImVec2 p3(curPos.x + mmW / 2.0f, curPos.y + mmH);            // Bottom
+            ImVec2 p4(curPos.x, curPos.y + mmH / 2.0f);                  // Left
+
+            ImDrawList* drawList = ImGui::GetWindowDrawList();
+            
+            // Solid black background diamond underneath so transparent pixels are consistently black
+            drawList->AddQuadFilled(p1, p2, p3, p4, IM_COL32(0, 0, 0, 255));
+            
+            // Render 200x200 OpenGL texture as an isometric diamond mapped quad
+            drawList->AddImageQuad((ImTextureID)(intptr_t)appState.minimapTexture, 
+                                   p1, p2, p3, p4,
+                                   ImVec2(0.0f, 0.0f), ImVec2(1.0f, 0.0f), 
+                                   ImVec2(1.0f, 1.0f), ImVec2(0.0f, 1.0f), IM_COL32_WHITE);
+            
+            // Render simple border over the diamond bounds
+            drawList->AddQuad(p1, p2, p3, p4, IM_COL32(150, 150, 150, 255), 2.0f);
+            
+            // Handle Map Clicking
+            if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+            {
+                ImVec2 mousePos = ImGui::GetMousePos();
+                float dx = mousePos.x - (curPos.x + mmW / 2.0f);
+                float dy = mousePos.y - (curPos.y + mmH / 2.0f);
+                
+                float u = dx / mmW + dy / mmH;
+                float v = dy / mmH - dx / mmW;
+                float true_u = u + 0.5f;
+                float true_v = v + 0.5f;
+
+                if (true_u >= 0.0f && true_u <= 1.0f && true_v >= 0.0f && true_v <= 1.0f)
+                {
+                    int tileX = static_cast<int>(true_u * GRID_SIZE);
+                    int tileY = static_cast<int>(true_v * GRID_SIZE);
+                    glm::ivec2 targetTile(tileX, tileY);
+                    glm::vec2 worldPos = tile_to_world(targetTile);
+                    cameraX = worldPos.x;
+                    cameraY = worldPos.y;
+                }
+            }
+            
+            // Draw Camera Viewport indicator on Minimap
+            const glm::vec2 camWorld(cameraX, cameraY);
+            const std::optional<glm::ivec2> camTile = world_to_tile(camWorld);
+            if (camTile.has_value())
+            {
+                float true_u = static_cast<float>(camTile->x) / static_cast<float>(GRID_SIZE);
+                float true_v = static_cast<float>(camTile->y) / static_cast<float>(GRID_SIZE);
+                float u = true_u - 0.5f;
+                float v = true_v - 0.5f;
+                
+                float cx = (u - v) * (mmW / 2.0f) + curPos.x + mmW / 2.0f;
+                float cy = (u + v) * (mmH / 2.0f) + curPos.y + mmH / 2.0f;
+                
+                drawList->AddQuad(
+                    ImVec2(cx, cy - 8), ImVec2(cx + 16, cy),
+                    ImVec2(cx, cy + 8), ImVec2(cx - 16, cy),
+                    IM_COL32(255, 255, 255, 255), 1.5f);
+            }
+
+            ImGui::EndTable();
+        }
         ImGui::End();
 
         ImGui::Render();
