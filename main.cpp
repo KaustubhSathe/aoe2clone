@@ -131,6 +131,10 @@ struct Villager
     std::deque<glm::vec2> waypointQueue;               // Shift+RClick queued destinations — popped in order after each arrival
     int hp = 25;                                        // Current health points
     int maxHp = 25;                                     // Maximum health points
+    bool isGarrisoned = false;
+    bool isMovingToGarrison = false;
+    int targetTcIndex = -1;
+    int garrisonTcIndex = -1;
 };
 
 // Represents a static pine tree obstacle placed on the map.
@@ -159,6 +163,7 @@ struct TownCenter
     bool hasGatherPoint = false;
     int attack = 5;
     int range = 6;
+    bool gatherPointIsSelf = false;
 };
 
 // Tracks the state of the mouse drag-select box.
@@ -1456,6 +1461,18 @@ int main()
                     else
                     {
                         v.moving = false;
+                        if (v.isMovingToGarrison && v.targetTcIndex >= 0 && v.targetTcIndex < appState.townCenters.size())
+                        {
+                            TownCenter& tcTarget = appState.townCenters[v.targetTcIndex];
+                            if (tcTarget.garrisonCount < tcTarget.maxGarrison)
+                            {
+                                tcTarget.garrisonCount++;
+                                v.isGarrisoned = true;
+                                v.garrisonTcIndex = v.targetTcIndex;
+                                v.selected = false;
+                            }
+                            v.isMovingToGarrison = false;
+                        }
                     }
                 }
                 else
@@ -1529,8 +1546,9 @@ int main()
         // ---------------------------------------------------------------------
         // Process Town Center Logic
         // ---------------------------------------------------------------------
-        for (TownCenter& tc : appState.townCenters)
+        for (size_t tcIdx = 0; tcIdx < appState.townCenters.size(); ++tcIdx)
         {
+            TownCenter& tc = appState.townCenters[tcIdx];
             if (tc.villagerQueueCount > 0)
             {
                 tc.villagerTrainingTimer += deltaTime;
@@ -1563,7 +1581,16 @@ int main()
                     }
 
                     v.position = tile_to_world(vTile);
-                    if (tc.hasGatherPoint)
+                    if (tc.gatherPointIsSelf && tc.garrisonCount < tc.maxGarrison)
+                    {
+                        tc.garrisonCount++;
+                        v.isGarrisoned = true;
+                        v.garrisonTcIndex = static_cast<int>(tcIdx);
+                        v.selected = false;
+                        v.targetPosition = tc.position;
+                        v.position = tc.position;
+                    }
+                    else if (tc.hasGatherPoint)
                     {
                         const glm::vec2 toGP = tc.gatherPoint - v.position;
                         if (glm::length(toGP) > 1.0f)
@@ -1721,6 +1748,7 @@ int main()
         // Draw villagers onto minimap
         for (const Villager& v : appState.villagers)
         {
+            if (v.isGarrisoned) continue;
             const std::optional<glm::ivec2> vTile = world_to_tile(v.position);
             if (vTile.has_value())
             {
@@ -1814,7 +1842,10 @@ int main()
         
         for (size_t i = 0; i < appState.villagers.size(); i++)
         {
-            renderQueue.push_back({2, i, appState.villagers[i].position.y});
+            if (!appState.villagers[i].isGarrisoned)
+            {
+                renderQueue.push_back({2, i, appState.villagers[i].position.y});
+            }
         }
         
         std::sort(renderQueue.begin(), renderQueue.end(), [](const RenderPayload& a, const RenderPayload& b) {
@@ -2145,6 +2176,64 @@ int main()
                     ImGui::Button("Create Villager (Q) (Max)", ImVec2(160, 40));
                     ImGui::EndDisabled();
                 }
+
+                if (firstSelectedTC->garrisonCount > 0)
+                {
+                    if (ImGui::Button("Ungarrison All", ImVec2(160, 40)))
+                    {
+                        int tcIdx = -1;
+                        for (size_t t = 0; t < appState.townCenters.size(); ++t) {
+                            if (&appState.townCenters[t] == firstSelectedTC) tcIdx = static_cast<int>(t);
+                        }
+                        
+                        for (Villager& v : appState.villagers)
+                        {
+                            if (v.isGarrisoned && v.garrisonTcIndex == tcIdx)
+                            {
+                                v.isGarrisoned = false;
+                                v.selected = true;
+                                firstSelectedTC->garrisonCount--;
+                                
+                                glm::ivec2 vTile = glm::ivec2(firstSelectedTC->tile.x - 1, firstSelectedTC->tile.y + 5);
+                                float bestDist = 1e9f;
+                                glm::vec2 targetWorld = firstSelectedTC->hasGatherPoint ? firstSelectedTC->gatherPoint : firstSelectedTC->position;
+
+                                for (int x = -1; x <= 4; ++x) {
+                                    for (int y = -1; y <= 4; ++y) {
+                                        if (x >= 0 && x <= 3 && y >= 0 && y <= 3) continue;
+                                        glm::ivec2 p(firstSelectedTC->tile.x + x, firstSelectedTC->tile.y + y);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p)) {
+                                            float dist = glm::length(tile_to_world(p) - targetWorld);
+                                            if (dist < bestDist) {
+                                                bestDist = dist;
+                                                vTile = p;
+                                            }
+                                        }
+                                    }
+                                }
+                                v.position = tile_to_world(vTile);
+                                v.targetPosition = v.position;
+
+                                if (firstSelectedTC->hasGatherPoint)
+                                {
+                                    std::vector<glm::vec2> path = find_path(appState, v.position, firstSelectedTC->gatherPoint);
+                                    if (path.size() > 1) {
+                                        v.targetPosition = path[1];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                        for (size_t i = 2; i < path.size(); ++i) {
+                                            v.waypointQueue.push_back(path[i]);
+                                        }
+                                    } else if (path.size() == 1) {
+                                        v.targetPosition = path[0];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // --- Column 1: Details ---
@@ -2432,6 +2521,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             clear_selection(*gAppState);
             for (Villager& v : gAppState->villagers)
             {
+                if (v.isGarrisoned) continue;
                 const glm::vec2 vsp = world_to_screen(v.position);
                 v.selected = point_in_drag_rect(vsp, gAppState->selection);
             }
@@ -2479,6 +2569,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 {
                     for (Villager& v : gAppState->villagers)
                     {
+                        if (v.isGarrisoned) continue;
                         const glm::vec2 vsp = world_to_screen(v.position);
                         if (villager_hit_test_screen(vsp, gAppState->cursorScreen))
                         {
@@ -2499,7 +2590,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         bool anySelected = false;
         for (const Villager& v : gAppState->villagers) 
         {
-            if (v.selected) anySelected = true;
+            if (v.selected && !v.isGarrisoned) anySelected = true;
         }
 
         TownCenter* selectedTC = nullptr;
@@ -2517,9 +2608,77 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
         if (anySelected)
         {
-            const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
-            const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
-            if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
+            int garrisonTCIndex = -1;
+            if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
+            {
+                for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+                {
+                    const TownCenter& tc = gAppState->townCenters[i];
+                    const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                    if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
+                    {
+                        garrisonTCIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (garrisonTCIndex >= 0)
+            {
+                const TownCenter& targetTc = gAppState->townCenters[garrisonTCIndex];
+                for (Villager& v : gAppState->villagers)
+                {
+                    if (!v.selected || v.isGarrisoned) continue;
+                    
+                    float bestDist = 1e9f;
+                    glm::vec2 bestTarget = targetTc.position;
+                    
+                    for (int x = -1; x <= 4; ++x) {
+                        for (int y = -1; y <= 4; ++y) {
+                            if (x >= 0 && x <= 3 && y >= 0 && y <= 3) continue;
+                            glm::ivec2 p(targetTc.tile.x + x, targetTc.tile.y + y);
+                            if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p)) {
+                                float dist = glm::length(tile_to_world(p) - v.position);
+                                if (dist < bestDist) {
+                                    bestDist = dist;
+                                    bestTarget = tile_to_world(p);
+                                }
+                            }
+                        }
+                    }
+
+                    std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
+                    v.waypointQueue.clear();
+                    v.isMovingToGarrison = true;
+                    v.targetTcIndex = garrisonTCIndex;
+                    if (path.size() > 1) {
+                        v.targetPosition = path[1];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = true;
+                        for (size_t i = 2; i < path.size(); ++i) {
+                            v.waypointQueue.push_back(path[i]);
+                        }
+                    } else if (path.size() == 1 && glm::length(path[0] - v.position) > 1.0f) {
+                        v.targetPosition = path[0];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = true;
+                    } else {
+                        if (targetTc.garrisonCount < targetTc.maxGarrison) {
+                            gAppState->townCenters[garrisonTCIndex].garrisonCount++;
+                            v.isGarrisoned = true;
+                            v.garrisonTcIndex = garrisonTCIndex;
+                            v.selected = false;
+                            v.moving = false;
+                            v.isMovingToGarrison = false;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
+                const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
+                if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
             {
                 // Invalid tile — cancel all movement.
                 for (Villager& v : gAppState->villagers)
@@ -2599,14 +2758,33 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 }
             }
         }
+        }
         else if (selectedTC)
         {
-            const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
-            const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
-            if (targetTile.has_value() && !is_tile_blocked(*gAppState, *targetTile))
+            int clickedTCIndex = -1;
+            for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
             {
-                selectedTC->hasGatherPoint = true;
-                selectedTC->gatherPoint = tile_to_world(*targetTile);
+                const TownCenter& tc = gAppState->townCenters[i];
+                const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
+                {
+                    clickedTCIndex = i;
+                    break;
+                }
+            }
+            
+            if (clickedTCIndex >= 0 && &gAppState->townCenters[clickedTCIndex] == selectedTC) {
+                selectedTC->gatherPointIsSelf = true;
+                selectedTC->hasGatherPoint = false;
+            } else {
+                selectedTC->gatherPointIsSelf = false;
+                const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
+                const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
+                if (targetTile.has_value() && !is_tile_blocked(*gAppState, *targetTile))
+                {
+                    selectedTC->hasGatherPoint = true;
+                    selectedTC->gatherPoint = tile_to_world(*targetTile);
+                }
             }
         }
     }
