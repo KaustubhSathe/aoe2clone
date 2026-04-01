@@ -1540,8 +1540,28 @@ int main()
                     tc.villagerTrainingTimer = 0.0f;
                     
                     Villager v;
-                    // Spawn the villager exactly as we did at start (near the south face)
-                    glm::ivec2 vTile = glm::ivec2(tc.tile.x - 1, tc.tile.y + 5);
+                    glm::ivec2 vTile = glm::ivec2(tc.tile.x - 1, tc.tile.y + 5); // Fallback
+                    float bestDist = 1e9f;
+                    glm::vec2 targetWorld = tc.hasGatherPoint ? tc.gatherPoint : tc.position;
+
+                    for (int x = -1; x <= 4; ++x)
+                    {
+                        for (int y = -1; y <= 4; ++y)
+                        {
+                            if (x >= 0 && x <= 3 && y >= 0 && y <= 3) continue; // Inside TC
+                            glm::ivec2 p(tc.tile.x + x, tc.tile.y + y);
+                            if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
+                            {
+                                float dist = glm::length(tile_to_world(p) - targetWorld);
+                                if (dist < bestDist)
+                                {
+                                    bestDist = dist;
+                                    vTile = p;
+                                }
+                            }
+                        }
+                    }
+
                     v.position = tile_to_world(vTile);
                     if (tc.hasGatherPoint)
                     {
