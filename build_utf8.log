@@ -1,0 +1,144 @@
+﻿MSBuild version 18.4.0+6e61e96ac for .NET Framework
+
+  glfw.vcxproj -> D:\Code\aoe2clone\build\_deps\glfw-build\src\Debug\glfw3.lib
+  glm.vcxproj -> D:\Code\aoe2clone\build\_deps\glm-build\glm\Debug\glm.lib
+  imgui.vcxproj -> D:\Code\aoe2clone\build\Debug\imgui.lib
+  main.cpp
+D:\Code\aoe2clone\main.cpp(462,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(462,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(462,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(462,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(462,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(462,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(462,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(463,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(463,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(464,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(464,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(466,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(466,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(467,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(467,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(468,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(468,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(469,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(469,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(470,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(470,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(472,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(472,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(473,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(473,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(474,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(474,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,17): error C3927: '->': trailing return type is not allowed after a non-function declarator [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,23): error C3484: syntax error: expected '->' before the return type [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,24): error C3613: missing return type after '->' ('int' assumed) [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,17): error C2734: 'engine': 'const' object must be initialized if not 'extern' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,17): error C2373: 'engine': redefinition; different type modifiers [D:\Code\aoe2clone\build\aoe2.vcxproj]
+      D:\Code\aoe2clone\main.cpp(187,17):
+      see declaration of 'engine'
+  
+D:\Code\aoe2clone\main.cpp(475,24): error C2146: syntax error: missing ';' before identifier 'gpu' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(475,24): error C2065: 'gpu': undeclared identifier [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(484,21): error C2737: 'pineTreeScale': const object must be initialized [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(496,5): error C2198: 'PFNGLGENVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(497,5): error C2198: 'PFNGLGENBUFFERSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(499,5): error C2198: 'PFNGLBINDBUFFERPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(540,30): error C2530: 'frame': references must be initialized [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(540,36): error C2143: syntax error: missing ';' before ':' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(540,65): error C2143: syntax error: missing ';' before ')' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(544,30): error C2530: 'frame': references must be initialized [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(544,36): error C2143: syntax error: missing ';' before ':' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(544,65): error C2143: syntax error: missing ';' before ')' [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(550,9): error C2198: 'PFNGLDELETETEXTURESPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(553,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(554,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(555,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(556,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(557,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(558,5): error C2198: 'PFNGLDELETEVERTEXARRAYSPROC': too few arguments for call [D:\Code\aoe2clone\build\aoe2.vcxproj]
+D:\Code\aoe2clone\main.cpp(558,5): error C1003: error count exceeds 100; stopping compilation [D:\Code\aoe2clone\build\aoe2.vcxproj]

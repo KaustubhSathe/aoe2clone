@@ -55,6 +55,12 @@ set(GLAD_DIR ${CMAKE_SOURCE_DIR}/third_party/glad)
 # ── Sources ───────────────────────────────────────────────────────────────────
 set(SOURCES
     main.cpp
+    src/Core/Globals.cpp
+    src/Math/CoordinateSystem.cpp
+    src/Graphics/RendererHelpers.cpp
+    src/Game/GameLogicHelpers.cpp
+    src/Game/Pathfinding.cpp
+    src/Game/GameLoop.cpp
     ${GLAD_DIR}/src/glad.c
 )
 

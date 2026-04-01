@@ -1,0 +1,60 @@
+#pragma once
+
+#include <glad/glad.h>
+#include <vector>
+#include <optional>
+#include <glm/glm.hpp>
+#include "Types.h"
+
+struct GPUState {
+    GLuint tileVAO = 0;
+    GLuint tileVBO = 0;
+    GLuint outlineVAO = 0;
+    GLuint outlineVBO = 0;
+    GLuint instanceVBO = 0;
+    GLuint visibilityVBO = 0;
+    GLuint blockedTileVAO = 0;
+    GLuint blockedTileVBO = 0;
+    GLuint blockedInstanceVBO = 0;
+    
+    GLuint spriteVAO = 0;
+    GLuint spriteVBO = 0;
+    
+    GLuint selectionVAO = 0;
+    GLuint selectionVBO = 0;
+    GLuint rectVAO = 0;
+    GLuint rectVBO = 0;
+    
+    GLuint pineBoundsVAO = 0;
+    GLuint pineBoundsVBO = 0;
+
+    GLuint tileShaderProgram = 0;
+    GLuint spriteShaderProgram = 0;
+    GLuint overlayShaderProgram = 0;
+    
+    GLint tileColorLoc = -1;
+    GLint tileProjLoc = -1;
+    GLint tileViewLoc = -1;
+
+    GLint spriteProjLoc = -1;
+    GLint spriteViewLoc = -1;
+    GLint spritePosLoc = -1;
+    GLint spriteSizeLoc = -1;
+    GLint spriteVisLoc = -1;
+
+    GLint overlayProjLoc = -1;
+    GLint overlayViewLoc = -1;
+    GLint overlayOffsetLoc = -1;
+    GLint overlayColorLoc = -1;
+};
+
+struct EngineState {
+    GPUState gpu;
+    AnimationSet walkAnimation;
+    AnimationSet idleAnimation;
+    std::optional<TextureFrame> pineTreeFrame;
+    std::optional<TextureFrame> townCenterFrame;
+    
+    std::vector<glm::vec2> translations;
+    std::vector<glm::vec2> blockedTileTranslations;
+};

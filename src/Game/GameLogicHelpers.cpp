@@ -1,0 +1,99 @@
+#include "GameLogicHelpers.h"
+#include "../Core/Constants.h"
+#include "../Math/CoordinateSystem.h"
+#include <algorithm>
+
+bool point_in_drag_rect(const glm::vec2& point, const SelectionState& selection)
+{
+    const double minX = std::min(selection.startScreen.x, selection.currentScreen.x);
+    const double maxX = std::max(selection.startScreen.x, selection.currentScreen.x);
+    const double minY = std::min(selection.startScreen.y, selection.currentScreen.y);
+    const double maxY = std::max(selection.startScreen.y, selection.currentScreen.y);
+    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+}
+
+bool villager_hit_test_screen(const glm::vec2& villagerScreenPosition, const glm::dvec2& cursorScreen)
+{
+    const glm::vec2 delta = glm::vec2(static_cast<float>(cursorScreen.x), static_cast<float>(cursorScreen.y)) - villagerScreenPosition;
+    return glm::length(delta) <= CLICK_SELECT_RADIUS;
+}
+
+bool tree_hit_test_screen(const PineTree& tree, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 spriteOrigin = tree.position + PINE_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(spriteOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(spriteOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
+void clear_selection(AppState& appState)
+{
+    appState.selectedTreeIndex = -1;
+    for (Villager& v : appState.villagers)
+    {
+        v.selected = false;
+    }
+    for (PineTree& tree : appState.pineTrees)
+    {
+        tree.selected = false;
+    }
+    for (TownCenter& tc : appState.townCenters)
+    {
+        tc.selected = false;
+    }
+}
+
+bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 spriteOrigin = tc.position + TOWN_CENTER_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(spriteOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(spriteOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
+bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
+{
+    for (const PineTree& tree : appState.pineTrees)
+    {
+        if (tree.tile == tile) return true;
+    }
+    for (const TownCenter& tc : appState.townCenters)
+    {
+        if (tile.x >= tc.tile.x && tile.x < tc.tile.x + 4 &&
+            tile.y >= tc.tile.y && tile.y < tc.tile.y + 4)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
+{
+    std::vector<glm::vec2> blockedTiles;
+    for (const PineTree& tree : appState.pineTrees)
+    {
+        blockedTiles.push_back(tile_to_world(tree.tile));
+    }
+    for (const TownCenter& tc : appState.townCenters)
+    {
+        for (int dx = 0; dx < 4; dx++)
+        {
+            for (int dy = 0; dy < 4; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(tc.tile + glm::ivec2(dx, dy)));
+            }
+        }
+    }
+    return blockedTiles;
+}
