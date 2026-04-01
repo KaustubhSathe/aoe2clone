@@ -16,6 +16,15 @@
 #include <optional>
 #include "Types.h"
 
+// =============================================================================
+// Declared here so main() can register them as GLFW callbacks before they are
+// defined at the bottom of the file.
+// =============================================================================
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void processInput(GLFWwindow* window);
+void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
+void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
+void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 
 struct GPUState {
     GLuint tileVAO = 0;
@@ -70,14 +79,4 @@ struct EngineState {
     std::vector<glm::vec2> blockedTileTranslations;
 };
 
-
-// =============================================================================
-// Declared here so main() can register them as GLFW callbacks before they are
-// defined at the bottom of the file.
-// =============================================================================
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow* window);
-void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
-void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
-void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
 

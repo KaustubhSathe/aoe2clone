@@ -331,7 +331,7 @@ int main()
     glGenBuffers(1, &engine.gpu.rectVBO);
     glBindVertexArray(engine.gpu.rectVAO);
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 8, nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 12, nullptr, GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 

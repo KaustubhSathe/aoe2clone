@@ -535,11 +535,19 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.0f, 0.0f, 1.0f);
                 const float hw = appState.townCenterSpriteSize.x * 0.5f;
                 const float h = appState.townCenterSpriteSize.y;
-                const float borderRect[] = { -hw, 0.0f, hw, 0.0f, hw, h, -hw, h };
+                const float baseH = hw;
+                const float borderPolygon[] = {
+                    0.0f, 0.0f,
+                    hw, baseH * 0.5f,
+                    hw, h - baseH * 0.5f,
+                    0.0f, h,
+                    -hw, h - baseH * 0.5f,
+                    -hw, baseH * 0.5f
+                };
                 glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderRect), borderRect);
+                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
                 glBindVertexArray(engine.gpu.rectVAO);
-                glDrawArrays(GL_LINE_LOOP, 0, 4);
+                glDrawArrays(GL_LINE_LOOP, 0, 6);
                 
                 if (tc.selected)
                 {

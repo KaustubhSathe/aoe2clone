@@ -48,17 +48,44 @@ void clear_selection(AppState& appState)
     }
 }
 
+bool point_in_polygon(const glm::vec2& p, const std::vector<glm::vec2>& polygon)
+{
+    bool inside = false;
+    for (size_t i = 0, j = polygon.size() - 1; i < polygon.size(); j = i++) {
+        if (((polygon[i].y > p.y) != (polygon[j].y > p.y)) &&
+            (p.x < (polygon[j].x - polygon[i].x) * (p.y - polygon[i].y) / (polygon[j].y - polygon[i].y) + polygon[i].x)) {
+            inside = !inside;
+        }
+    }
+    return inside;
+}
+
+std::vector<glm::vec2> get_town_center_polygon(const TownCenter& tc, const glm::vec2& spriteSize)
+{
+    const glm::vec2 renderPos = tc.position + TOWN_CENTER_RENDER_OFFSET;
+    const float hw = spriteSize.x * 0.5f;
+    const float h = spriteSize.y;
+    const float baseH = hw; // typical ratio for AoE2 2:1 projection
+    
+    return {
+        renderPos + glm::vec2(0.0f, 0.0f),            // Bottom tip
+        renderPos + glm::vec2(hw, baseH * 0.5f),      // Right tip
+        renderPos + glm::vec2(hw, h - baseH * 0.5f),  // Top right
+        renderPos + glm::vec2(0.0f, h),               // Top tip
+        renderPos + glm::vec2(-hw, h - baseH * 0.5f), // Top left
+        renderPos + glm::vec2(-hw, baseH * 0.5f)      // Left tip
+    };
+}
+
 bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
 {
-    const glm::vec2 spriteOrigin = tc.position + TOWN_CENTER_RENDER_OFFSET;
-    const glm::vec2 screenBottomLeft = world_to_screen(spriteOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
-    const glm::vec2 screenTopRight = world_to_screen(spriteOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
-    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
-    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
-    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
-    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
-    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
-        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+    std::vector<glm::vec2> worldPoly = get_town_center_polygon(tc, spriteSize);
+    std::vector<glm::vec2> screenPoly;
+    screenPoly.reserve(worldPoly.size());
+    for (const auto& wp : worldPoly) {
+        screenPoly.push_back(world_to_screen(wp));
+    }
+    return point_in_polygon(glm::vec2(static_cast<float>(cursorScreen.x), static_cast<float>(cursorScreen.y)), screenPoly);
 }
 
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
