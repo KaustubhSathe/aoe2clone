@@ -56,6 +56,7 @@ set(GLAD_DIR ${CMAKE_SOURCE_DIR}/third_party/glad)
 set(SOURCES
     main.cpp
     src/Core/Globals.cpp
+    src/Core/Engine.cpp
     src/Math/CoordinateSystem.cpp
     src/Graphics/RendererHelpers.cpp
     src/Game/GameLogicHelpers.cpp
