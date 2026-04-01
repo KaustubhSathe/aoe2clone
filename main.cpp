@@ -389,7 +389,6 @@ int main()
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-    const glm::vec2 spriteScale(72.0f, 72.0f);
     const glm::vec2 pineTreeScale = engine.pineTreeFrame.has_value()
         ? glm::vec2(static_cast<float>(engine.pineTreeFrame->width), static_cast<float>(engine.pineTreeFrame->height))
         : glm::vec2(108.0f, 162.0f);

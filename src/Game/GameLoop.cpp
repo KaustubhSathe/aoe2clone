@@ -367,7 +367,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
 void RenderScene(EngineState& engine, AppState& appState)
 {
         const int selectionSegments = 32;
-        const glm::vec2 spriteScale = glm::vec2(128.0f, 128.0f);
+        const glm::vec2 spriteScale = glm::vec2(72.0f, 72.0f);
 
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
