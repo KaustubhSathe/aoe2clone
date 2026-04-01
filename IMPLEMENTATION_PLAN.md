@@ -22,5 +22,5 @@ The next steps focus on turning this technical foundation into a playable RTS ga
         * Implement this for all selected units. Group path finding.
 
 ### Milestone 3: UI and Controls
-- [ ] Villager UI
-        * 
+- [ ] Modify the top bar to show Wood, Food, Gold, Stone, Population, Idle Villager count, Age (I, II, III, IV) in that order. Age should start at Age I, and villager idle count should be updated in real time, starting with 3 idle villager any moving villager should be still counted as idle villager for now. We will define soon what a non-idle villager means.
+- [ ] To the right of these should be a timer, which indicates the current ingame time in HH:MM:SS format. And the ingame time is 1.7 times actual real time. So 1 minute in game is 1/1.7 minutes in real time. Display it like this HH:MM:SS (Normal - 1.7). 
