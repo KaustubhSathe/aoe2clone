@@ -63,6 +63,34 @@ GLuint create_program(const char* vertexSource, const char* fragmentSource)
     return program;
 }
 
+#include <fstream>
+#include <sstream>
+
+std::string read_file_to_string(const std::filesystem::path& path)
+{
+    std::ifstream file(path);
+    if (!file.is_open())
+    {
+        std::cerr << "Failed to open shader file: " << path.string() << '\n';
+        return "";
+    }
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+GLuint create_program_from_files(const std::filesystem::path& vertexPath, const std::filesystem::path& fragmentPath)
+{
+    std::string vertexSource = read_file_to_string(vertexPath);
+    std::string fragmentSource = read_file_to_string(fragmentPath);
+    if (vertexSource.empty() || fragmentSource.empty())
+    {
+        std::cerr << "Failed to load shaders: " << vertexPath.string() << " / " << fragmentPath.string() << '\n';
+        return 0;
+    }
+    return create_program(vertexSource.c_str(), fragmentSource.c_str());
+}
+
 bool load_texture_from_png(
     const std::filesystem::path& imagePath,
     IWICImagingFactory* imagingFactory,

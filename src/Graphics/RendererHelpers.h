@@ -8,8 +8,10 @@
 #include <glad/glad.h>
 
 // OpenGL Shader Compilation
+std::string read_file_to_string(const std::filesystem::path& path);
 GLuint compile_shader(GLenum type, const char* source);
 GLuint create_program(const char* vertexSource, const char* fragmentSource);
+GLuint create_program_from_files(const std::filesystem::path& vertexPath, const std::filesystem::path& fragmentPath);
 
 // WIC Texture Loading
 std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& assetDirectory);

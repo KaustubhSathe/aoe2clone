@@ -27,111 +27,20 @@
 #include "src/Game/Pathfinding.h"
 #include "src/Game/GameLoop.h"
 
+
+// =============================================================================
+// FORWARD DECLARATIONS
+// Declared here so main() can register them as GLFW callbacks before they are
+// defined at the bottom of the file.
+// =============================================================================
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 void processInput(GLFWwindow* window);
 void scroll_callback(GLFWwindow* window, double xoffset, double yoffset);
 void cursor_position_callback(GLFWwindow* window, double xpos, double ypos);
 void mouse_button_callback(GLFWwindow* window, int button, int action, int mods);
-// GLSL SHADER SOURCES
-// Inline GLSL strings compiled at runtime. Three shader programs are used:
-//   Tile shader   - draws instanced isometric tile diamonds (filled + outline)
-//   Sprite shader - draws textured quads for villager and tree sprites
-//   Overlay shader - draws untextured colored shapes (selection circle, drag box)
-// =============================================================================
-const char* tileVertexShaderSource = R"(
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-    layout (location = 1) in vec2 aOffset;
-    layout (location = 2) in float aVisibility;
 
-    uniform mat4 uProjection;
-    uniform mat4 uView;
 
-    out float vVisibility;
-
-    void main()
-    {
-        vec2 worldPos = aPos + aOffset;
-        gl_Position = uProjection * uView * vec4(worldPos, 0.0, 1.0);
-        vVisibility = aVisibility;
-    }
-)";
-
-const char* tileFragmentShaderSource = R"(
-    #version 330 core
-    in float vVisibility;
-    out vec4 FragColor;
-    uniform vec4 uColor;
-
-    void main()
-    {
-        FragColor = uColor * vec4(vVisibility, vVisibility, vVisibility, 1.0);
-    }
-)";
-
-const char* spriteVertexShaderSource = R"(
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-    layout (location = 1) in vec2 aUV;
-
-    uniform mat4 uProjection;
-    uniform mat4 uView;
-    uniform vec2 uSpritePos;
-    uniform vec2 uSpriteSize;
-
-    out vec2 vUV;
-
-    void main()
-    {
-        vec2 worldPos = uSpritePos + (aPos * uSpriteSize);
-        gl_Position = uProjection * uView * vec4(worldPos, 0.0, 1.0);
-        vUV = aUV;
-    }
-)";
-
-const char* spriteFragmentShaderSource = R"(
-    #version 330 core
-    in vec2 vUV;
-    out vec4 FragColor;
-
-    uniform sampler2D uTexture;
-    uniform float uVisibility;
-
-    void main()
-    {
-        vec4 color = texture(uTexture, vUV);
-        if (color.a < 0.01)
-        {
-            discard;
-        }
-        FragColor = color * vec4(uVisibility, uVisibility, uVisibility, 1.0);
-    }
-)";
-
-const char* overlayVertexShaderSource = R"(
-    #version 330 core
-    layout (location = 0) in vec2 aPos;
-
-    uniform mat4 uProjection;
-    uniform mat4 uView;
-    uniform vec2 uOffset;
-
-    void main()
-    {
-        gl_Position = uProjection * uView * vec4(aPos + uOffset, 0.0, 1.0);
-    }
-)";
-
-const char* overlayFragmentShaderSource = R"(
-    #version 330 core
-    out vec4 FragColor;
-    uniform vec4 uColor;
-
-    void main()
-    {
-        FragColor = uColor;
-    }
-)";
+// Shader files are dynamically loaded at runtime avoiding large hardcoded string definitions.
 
 int main()
 {
@@ -214,9 +123,9 @@ int main()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init("#version 330");
 
-    const GLuint tileShaderProgram = create_program(tileVertexShaderSource, tileFragmentShaderSource);
-    const GLuint spriteShaderProgram = create_program(spriteVertexShaderSource, spriteFragmentShaderSource);
-    const GLuint overlayShaderProgram = create_program(overlayVertexShaderSource, overlayFragmentShaderSource);
+    engine.gpu.tileShaderProgram = create_program_from_files("src/shaders/tile.vs", "src/shaders/tile.fs");
+    engine.gpu.spriteShaderProgram = create_program_from_files("src/shaders/sprite.vs", "src/shaders/sprite.fs");
+    engine.gpu.overlayShaderProgram = create_program_from_files("src/shaders/overlay.vs", "src/shaders/overlay.fs");
 
     // -------------------------------------------------------------------------
     // Tile Geometry
