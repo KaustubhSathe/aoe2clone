@@ -13,6 +13,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
 - [x] Below it Add Range title, Range: 6
 - [x] Also implement gather point for town center. I.e when a villager is produced from town center it should gather at the gather point.
 - [x] Town center garrison feature, maximum 15 villagers can garrison in town center. When garrisoned, the villager should not be able to move or perform any other action. Also if gather point of town center is set to town center itself then the new villager created should get garrisoned in the town center.
+- [ ] Use flat building asset for town center
 
 ### Milestone 2: Grid-Based Pathfinding (A*)
 - [x] Villagers currently move in a straight line and stop if they hit a blocked tile.

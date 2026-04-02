@@ -13,4 +13,4 @@ constexpr float CLICK_SELECT_RADIUS = 26.0f;
 constexpr float DRAG_THRESHOLD = 4.0f;
 constexpr float MINIMAP_SIZE = 160.0f;
 constexpr glm::vec2 PINE_RENDER_OFFSET = glm::vec2(-20.0f, -10.0f);
-constexpr glm::vec2 TOWN_CENTER_RENDER_OFFSET = glm::vec2(0.0f, -65.0f);
+constexpr glm::vec2 TOWN_CENTER_RENDER_OFFSET = glm::vec2(0.0f, -120.0f);

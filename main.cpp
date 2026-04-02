@@ -153,17 +153,18 @@ int main()
         std::cerr << "Failed to load pine tree frame image_1x1_04.png\n";
     }
 
-    engine.townCenterFrame = load_frame_by_index(std::filesystem::path("assets") / "b_dark_town_center_age1_x2.sld", 0);
-    if (!engine.townCenterFrame.has_value())
+    TextureFrame tcFrame;
+    if (load_texture_from_png(std::filesystem::path("assets") / "town_center" / "b_afri_town_center_age2_x1.png", tcFrame))
     {
-        std::cerr << "Failed to load town center frame image_1x1_0.png\n";
-    }
-    else
-    {
+        engine.townCenterFrame = tcFrame;
         // A 4x4 tile grid width is 8 * TILE_HALF_WIDTH. We scale the sprite to precisely span the 4x4 base.
         const float targetTCWidth = 8.0f * TILE_HALF_WIDTH;
         const float scaleRatio = targetTCWidth / static_cast<float>(engine.townCenterFrame->width);
         appState.townCenterSpriteSize = glm::vec2(targetTCWidth, static_cast<float>(engine.townCenterFrame->height) * scaleRatio);
+    }
+    else
+    {
+        std::cerr << "Failed to load town center frame b_afri_town_center_age2_x1.png\n";
     }
 
     // -------------------------------------------------------------------------

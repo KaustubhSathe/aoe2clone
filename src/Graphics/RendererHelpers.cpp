@@ -93,9 +93,20 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
 
 bool load_texture_from_png(
     const std::filesystem::path& imagePath,
-    IWICImagingFactory* imagingFactory,
     TextureFrame& outFrame)
 {
+    IWICImagingFactory* imagingFactory = nullptr;
+    const HRESULT factoryResult = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&imagingFactory));
+    if (FAILED(factoryResult))
+    {
+        std::cerr << "Failed to create WIC imaging factory\n";
+        return false;
+    }
+
     IWICBitmapDecoder* decoder = nullptr;
     IWICBitmapFrameDecode* frame = nullptr;
     IWICFormatConverter* converter = nullptr;
@@ -109,6 +120,7 @@ bool load_texture_from_png(
     if (FAILED(decoderResult))
     {
         std::cerr << "Failed to decode texture: " << imagePath.string() << '\n';
+        safe_release(imagingFactory);
         return false;
     }
 
@@ -116,6 +128,7 @@ bool load_texture_from_png(
     if (FAILED(result))
     {
         safe_release(decoder);
+        safe_release(imagingFactory);
         std::cerr << "Failed to read PNG frame: " << imagePath.string() << '\n';
         return false;
     }
@@ -125,6 +138,7 @@ bool load_texture_from_png(
     {
         safe_release(frame);
         safe_release(decoder);
+        safe_release(imagingFactory);
         std::cerr << "Failed to create WIC format converter\n";
         return false;
     }
@@ -141,6 +155,7 @@ bool load_texture_from_png(
         safe_release(converter);
         safe_release(frame);
         safe_release(decoder);
+        safe_release(imagingFactory);
         std::cerr << "Failed to convert PNG format: " << imagePath.string() << '\n';
         return false;
     }
@@ -160,6 +175,7 @@ bool load_texture_from_png(
         safe_release(converter);
         safe_release(frame);
         safe_release(decoder);
+        safe_release(imagingFactory);
         std::cerr << "Failed to copy PNG pixels: " << imagePath.string() << '\n';
         return false;
     }
@@ -187,6 +203,7 @@ bool load_texture_from_png(
     safe_release(converter);
     safe_release(frame);
     safe_release(decoder);
+    safe_release(imagingFactory);
     return true;
 }
 
@@ -240,7 +257,7 @@ std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& asse
 
         TextureFrame frameData;
         frameData.frameIndex = std::stoi(fileName.substr(separator + 1));
-        if (load_texture_from_png(pngFile, imagingFactory, frameData))
+        if (load_texture_from_png(pngFile, frameData))
         {
             frames.push_back(frameData);
         }

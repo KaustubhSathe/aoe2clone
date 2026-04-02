@@ -16,6 +16,7 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
 // WIC Texture Loading
 std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& assetDirectory);
 std::optional<TextureFrame> load_frame_by_index(const std::filesystem::path& assetDirectory, int targetFrameIndex);
+bool load_texture_from_png(const std::filesystem::path& imagePath, TextureFrame& outFrame);
 
 // Animation direction lookup
 int facing_index_from_direction(const glm::vec2& direction, int frameCount);
