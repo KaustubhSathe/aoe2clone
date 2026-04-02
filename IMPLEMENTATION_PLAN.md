@@ -13,7 +13,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
 - [x] Below it Add Range title, Range: 6
 - [x] Also implement gather point for town center. I.e when a villager is produced from town center it should gather at the gather point.
 - [x] Town center garrison feature, maximum 15 villagers can garrison in town center. When garrisoned, the villager should not be able to move or perform any other action. Also if gather point of town center is set to town center itself then the new villager created should get garrisoned in the town center.
-- [ ] Use flat building asset for town center
+- [x] Use flat building asset for town center
 
 ### Milestone 2: Grid-Based Pathfinding (A*)
 - [x] Villagers currently move in a straight line and stop if they hit a blocked tile.
@@ -25,3 +25,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
 ### Milestone 3: UI and Controls
 - [x] Modify the top bar to show Wood, Food, Gold, Stone, Population, Idle Villager count, Age (I, II, III, IV) in that order. Age should start at Age I, and villager idle count should be updated in real time, starting with 3 idle villager any moving villager should be still counted as idle villager for now. We will define soon what a non-idle villager means.
 - [x] To the right of these should be a timer, which indicates the current ingame time in HH:MM:SS format. And the ingame time is 1.7 times actual real time. So 1 minute in game is 1/1.7 minutes in real time. Display it like this HH:MM:SS (Normal - 1.7). 
+- [ ] Change the villager Commands UI layout, first should be a button "Build Economic Building", second should "Build Military Building", third should be "Repair", fourth should be "Garrison", fifth should be "Stop". For Build Economic building use this icon D:\Code\aoe2clone\assets\actions_icons\50721_31.png, for Build Military Building use this icon D:\Code\aoe2clone\assets\actions_icons\50721_32.png. The  "Build Economic Building" should be in tooltip, and "Build Military Building" should be in tooltip.
+
+### Milestone 4: Buildings
+- [ ] Add House building, it should increase the population limit by 5. 
