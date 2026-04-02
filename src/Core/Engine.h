@@ -77,6 +77,9 @@ struct EngineState {
     
     std::vector<glm::vec2> translations;
     std::vector<glm::vec2> blockedTileTranslations;
+    
+    TextureFrame buildEconomicIcon;
+    TextureFrame buildMilitaryIcon;
 };
 
 

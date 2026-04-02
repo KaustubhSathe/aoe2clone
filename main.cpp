@@ -167,6 +167,15 @@ int main()
         std::cerr << "Failed to load town center frame b_afri_town_center_age2_x1.png\n";
     }
 
+    if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_31.png", engine.buildEconomicIcon))
+    {
+        std::cerr << "Failed to load build economic icon 50721_31.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_32.png", engine.buildMilitaryIcon))
+    {
+        std::cerr << "Failed to load build military icon 50721_32.png\n";
+    }
+
     // -------------------------------------------------------------------------
     // Tree Placement
     // Scatter pine trees pseudo-randomly across the map using a hash of (x, y).
@@ -427,6 +436,8 @@ int main()
     {
         glDeleteTextures(1, &engine.pineTreeFrame->texture);
     }
+    glDeleteTextures(1, &engine.buildEconomicIcon.texture);
+    glDeleteTextures(1, &engine.buildMilitaryIcon.texture);
 
     glDeleteVertexArrays(1, &engine.gpu.tileVAO);
     glDeleteVertexArrays(1, &engine.gpu.outlineVAO);

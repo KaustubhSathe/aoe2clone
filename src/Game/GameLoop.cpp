@@ -804,15 +804,20 @@ void RenderUI(EngineState& engine, AppState& appState)
             ImGui::TableSetColumnIndex(0);
             if (firstSelectedVillager)
             {
-                if (ImGui::Button("Chop Wood", ImVec2(80, 40))) { /* placeholder */ }
+                if (ImGui::ImageButton("build_eco", (ImTextureID)(intptr_t)engine.buildEconomicIcon.texture, ImVec2(40, 40))) { }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Economic Building");
                 ImGui::SameLine();
-                if (ImGui::Button("Build House", ImVec2(80, 40))) { /* placeholder */ }
-                ImGui::SameLine();
-                if (ImGui::Button("Build Mill", ImVec2(80, 40))) { /* placeholder */ }
                 
-                if (ImGui::Button("Farm", ImVec2(80, 40))) { /* placeholder */ }
+                if (ImGui::ImageButton("build_mil", (ImTextureID)(intptr_t)engine.buildMilitaryIcon.texture, ImVec2(40, 40))) { }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Military Building");
                 ImGui::SameLine();
-                if (ImGui::Button("Stop", ImVec2(80, 40))) 
+                
+                if (ImGui::Button("Repair", ImVec2(80, 48))) { }
+                
+                if (ImGui::Button("Garrison", ImVec2(80, 48))) { }
+                ImGui::SameLine();
+                
+                if (ImGui::Button("Stop", ImVec2(80, 48))) 
                 {
                     for (Villager& v : appState.villagers)
                     {
