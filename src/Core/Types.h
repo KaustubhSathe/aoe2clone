@@ -73,6 +73,17 @@ struct SelectionState
     glm::dvec2 currentScreen = glm::dvec2(0.0);
 };
 
+struct FPSState
+{
+    static constexpr int SAMPLE_COUNT = 60;
+    float frameTimes[SAMPLE_COUNT] = {};
+    int sampleIndex = 0;
+    float accumulatedTime = 0.0f;
+    int currentFPS = 0;
+    float updateTimer = 0.0f;
+    static constexpr float UPDATE_INTERVAL = 0.25f;
+};
+
 struct AppState
 {
     std::vector<Villager> villagers;
@@ -98,5 +109,6 @@ struct AppState
     
     float inGameTime = 0.0f;
     int currentAge = 1; // 1 = Dark Age
+    FPSState fps;
 };
 

@@ -676,6 +676,22 @@ void RenderScene(EngineState& engine, AppState& appState)
 
 }
 
+static void UpdateFPS(FPSState& fps, float deltaTime)
+{
+    fps.updateTimer += deltaTime;
+    fps.accumulatedTime -= fps.frameTimes[fps.sampleIndex];
+    fps.frameTimes[fps.sampleIndex] = deltaTime;
+    fps.accumulatedTime += deltaTime;
+    fps.sampleIndex = (fps.sampleIndex + 1) % FPSState::SAMPLE_COUNT;
+
+    if (fps.updateTimer >= FPSState::UPDATE_INTERVAL)
+    {
+        fps.updateTimer = 0.0f;
+        const float avgDelta = fps.accumulatedTime / FPSState::SAMPLE_COUNT;
+        fps.currentFPS = static_cast<int>(0.5f + (1.0f / avgDelta));
+    }
+}
+
 void RenderUI(EngineState& engine, AppState& appState)
 {
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -720,9 +736,22 @@ void RenderUI(EngineState& engine, AppState& appState)
         
         char timeStr[64];
         snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d (Normal - 1.7)", hours, minutes, seconds);
+
+        char fpsStr[32];
+        snprintf(fpsStr, sizeof(fpsStr), "FPS: %d", appState.fps.currentFPS);
+
+        UpdateFPS(appState.fps, deltaTime);
+
         float timeWidth = ImGui::CalcTextSize(timeStr).x;
-        ImGui::SameLine(viewport->Size.x - timeWidth - 16.0f);
+        float fpsWidth = ImGui::CalcTextSize(fpsStr).x;
+        float gap = 24.0f;
+        float totalWidth = timeWidth + gap + fpsWidth;
+
+        ImGui::SameLine((viewport->Size.x - totalWidth) * 0.5f);
         ImGui::Text("%s", timeStr);
+        ImGui::SameLine();
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap);
+        ImGui::Text("%s", fpsStr);
 
         ImGui::End();
 
