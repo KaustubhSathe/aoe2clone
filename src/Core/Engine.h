@@ -73,6 +73,7 @@ struct EngineState {
     GPUState gpu;
     AnimationSet walkAnimation;
     AnimationSet idleAnimation;
+    AnimationSet builderAnimation;
     std::optional<TextureFrame> pineTreeFrame;
     std::optional<TextureFrame> townCenterFrame;
     std::optional<TextureFrame> houseFrame;
@@ -93,6 +94,12 @@ struct EngineState {
     TextureFrame archeryRangeIcon;
     TextureFrame stableIcon;
     TextureFrame siegeWorkshopIcon;
+    TextureFrame houseStage0;
+    TextureFrame houseStage1;
+    TextureFrame houseStage2;
+    TextureFrame houseStage3;
 };
+
+void rebuild_blocked_tiles(EngineState& engine, AppState& appState);
 
 

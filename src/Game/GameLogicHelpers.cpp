@@ -51,6 +51,7 @@ void clear_selection(AppState& appState)
         house.selected = false;
     }
     appState.selectedBuilding = BuildableBuilding::None;
+    appState.cursorMode = CursorMode::Normal;
 }
 
 bool point_in_polygon(const glm::vec2& p, const std::vector<glm::vec2>& polygon)
@@ -159,4 +160,16 @@ std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
         }
     }
     return blockedTiles;
+}
+
+bool can_place_house(const AppState& appState, const glm::ivec2& tile)
+{
+    if (tile.x < 0 || tile.x >= GRID_SIZE - 1 || tile.y < 0 || tile.y >= GRID_SIZE - 1)
+    {
+        return false;
+    }
+    return !is_tile_blocked(appState, tile) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 0)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(0, 1)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 1));
 }

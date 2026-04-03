@@ -36,6 +36,10 @@ struct Villager
     bool isMovingToGarrison = false;
     int targetTcIndex = -1;
     int garrisonTcIndex = -1;
+    bool isBuilding = false;
+    int buildingTargetIndex = -1;
+    int builderFrameIndex = 0;
+    float builderAnimTimer = 0.0f;
 };
 
 struct PineTree
@@ -54,6 +58,9 @@ struct House
     bool selected = false;
     int hp = 500;
     int maxHp = 500;
+    bool isUnderConstruction = true;
+    float buildProgress = 0.0f;
+    int assignedVillagerIndex = -1;
 };
 
 struct TownCenter
@@ -110,6 +117,13 @@ enum class BuildableBuilding
     LumberCamp
 };
 
+struct BuildTask
+{
+    int villagerIndex = -1;
+    int buildingIndex = -1;
+    glm::ivec2 targetTile;
+};
+
 struct AppState
 {
     std::vector<Villager> villagers;
@@ -143,5 +157,9 @@ struct AppState
     FPSState fps;
     CursorMode cursorMode = CursorMode::Normal;
     BuildableBuilding selectedBuilding = BuildableBuilding::None;
+
+    std::vector<BuildTask> buildTasks;
+    glm::ivec2 pendingBuildTile = glm::ivec2(-1, -1);
+    bool canBuildAtPendingTile = false;
 };
 

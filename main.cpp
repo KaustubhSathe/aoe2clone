@@ -64,6 +64,7 @@ int main()
 
     AppState appState;
     EngineState engine;
+    gEngine = &engine;
     appState.explored.resize(GRID_SIZE * GRID_SIZE, false);
     appState.visible.resize(GRID_SIZE * GRID_SIZE, false);
     appState.tileVisibilities.resize(GRID_SIZE * GRID_SIZE, 0.0f);
@@ -224,6 +225,39 @@ int main()
     if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_23.png", engine.siegeWorkshopIcon))
     {
         std::cerr << "Failed to load siege workshop icon 50705_23.png\n";
+    }
+
+    // Load builder animation
+    engine.builderAnimation.frames = load_frame_directory(std::filesystem::path("assets") / "u_vil_male_builder_taskA_x2.sld");
+    if (engine.builderAnimation.frames.empty())
+    {
+        std::cerr << "No builder task frames were loaded\n";
+    }
+
+    // Load house construction stage sprites
+    if (!load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_0.png", engine.houseStage0))
+    {
+        std::cerr << "Failed to load house stage 0\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_1.png", engine.houseStage1))
+    {
+        std::cerr << "Failed to load house stage 1\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_2.png", engine.houseStage2))
+    {
+        std::cerr << "Failed to load house stage 2\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_3.png", engine.houseStage3))
+    {
+        std::cerr << "Failed to load house stage 3\n";
+    }
+
+    // Scale house sprite to span 2x2 tiles (same as town center but half the width/height)
+    if (engine.houseStage3.texture != 0)
+    {
+        const float targetHouseWidth = 4.0f * TILE_HALF_WIDTH; // 2 tiles wide
+        const float scaleRatio = targetHouseWidth / static_cast<float>(engine.houseStage3.width);
+        appState.houseSpriteSize = glm::vec2(targetHouseWidth, static_cast<float>(engine.houseStage3.height) * scaleRatio);
     }
 
     // Create garrison cursor - try custom cursor first, fall back to ARROW cursor for testing

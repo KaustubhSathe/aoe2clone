@@ -17,3 +17,5 @@ extern float lastFrame;
 
 extern AppState* gAppState;
 extern GLFWcursor* gGarrisonCursor;
+struct EngineState;
+extern EngineState* gEngine;

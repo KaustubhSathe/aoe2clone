@@ -113,6 +113,43 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 v.walkAnimTimer = 0.0f;
                 v.walkFrameIndex = 0;
             }
+
+            // If villager was walking to a building site, start building when arrived
+            if (!v.moving && v.buildingTargetIndex >= 0 && !v.isBuilding)
+            {
+                v.isBuilding = true;
+                v.builderFrameIndex = 0;
+                v.builderAnimTimer = 0.0f;
+            }
+
+            // Handle building task progress
+            if (v.isBuilding && v.buildingTargetIndex >= 0 && v.buildingTargetIndex < static_cast<int>(appState.houses.size()))
+            {
+                // Per-villager timer for builder animation
+                v.builderAnimTimer += deltaTime;
+                const float frameTime = 1.0f / WALK_ANIMATION_FPS;
+                while (v.builderAnimTimer >= frameTime)
+                {
+                    v.builderAnimTimer -= frameTime;
+                    v.builderFrameIndex = (v.builderFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
+                }
+
+                House& house = appState.houses[v.buildingTargetIndex];
+                if (house.isUnderConstruction && house.buildProgress < 1.0f)
+                {
+                    house.buildProgress += (deltaTime * 1.7f) / HOUSE_BUILD_TIME;
+                    if (house.buildProgress >= 1.0f)
+                    {
+                        house.buildProgress = 1.0f;
+                        house.isUnderConstruction = false;
+                        house.assignedVillagerIndex = -1;
+                        appState.housePopulationBonus += 5;
+                        appState.maxPopulation = 5 + appState.housePopulationBonus;
+                        v.isBuilding = false;
+                        v.buildingTargetIndex = -1;
+                    }
+                }
+            }
         }
 
         // ---------------------------------------------------------------------
@@ -510,12 +547,33 @@ void RenderScene(EngineState& engine, AppState& appState)
             else if (payload.type == 2) // Villager
             {
                 const Villager& v = appState.villagers[payload.index];
-                const AnimationSet& activeAnimation = v.moving ? engine.walkAnimation : engine.idleAnimation;
+                const AnimationSet& activeAnimation = v.isBuilding ? engine.builderAnimation : (v.moving ? engine.walkAnimation : engine.idleAnimation);
                 if (!activeAnimation.frames.empty())
                 {
-                    const int frameIndex = v.moving
-                        ? walk_animation_index(v.facingDirection, v.walkFrameIndex, static_cast<int>(engine.walkAnimation.frames.size()))
-                        : facing_index_from_direction(v.facingDirection, static_cast<int>(engine.idleAnimation.frames.size()));
+                    int frameIndex = 0;
+                    if (v.isBuilding)
+                    {
+                        // Builder animation uses direction-based frame selection
+                        const int builderFrameCount = static_cast<int>(engine.builderAnimation.frames.size());
+                        if (builderFrameCount == 0)
+                        {
+                            frameIndex = 0;
+                        }
+                        else
+                        {
+                            int dirGroup = walk_direction_group_from_direction(v.facingDirection);
+                            frameIndex = dirGroup * WALK_FRAMES_PER_DIRECTION + (v.builderFrameIndex % WALK_FRAMES_PER_DIRECTION);
+                            if (frameIndex >= builderFrameCount) frameIndex = frameIndex % builderFrameCount;
+                        }
+                    }
+                    else if (v.moving)
+                    {
+                        frameIndex = walk_animation_index(v.facingDirection, v.walkFrameIndex, static_cast<int>(engine.walkAnimation.frames.size()));
+                    }
+                    else
+                    {
+                        frameIndex = facing_index_from_direction(v.facingDirection, static_cast<int>(engine.idleAnimation.frames.size()));
+                    }
                     const TextureFrame& activeFrame = activeAnimation.frames[static_cast<size_t>(frameIndex)];
 
                     glUniform2f(engine.gpu.spriteSizeLoc, spriteScale.x, spriteScale.y);
@@ -535,8 +593,25 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform2f(engine.gpu.spriteSizeLoc, appState.houseSpriteSize.x, appState.houseSpriteSize.y);
                 glUniform1f(engine.gpu.spriteVisLoc, appState.tileVisibilities[houseIndex]);
 
+                GLuint houseTexture;
+                if (house.isUnderConstruction)
+                {
+                    if (house.buildProgress < 0.33f)
+                        houseTexture = engine.houseStage0.texture;
+                    else if (house.buildProgress < 0.66f)
+                        houseTexture = engine.houseStage1.texture;
+                    else if (house.buildProgress < 1.0f)
+                        houseTexture = engine.houseStage2.texture;
+                    else
+                        houseTexture = engine.houseStage3.texture;
+                }
+                else
+                {
+                    houseTexture = engine.houseStage3.texture;
+                }
+
                 glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, engine.houseIcon.texture);
+                glBindTexture(GL_TEXTURE_2D, houseTexture);
                 glUniform2f(engine.gpu.spritePosLoc, house.position.x + HOUSE_RENDER_OFFSET.x, house.position.y + HOUSE_RENDER_OFFSET.y);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             }
@@ -608,15 +683,58 @@ void RenderScene(EngineState& engine, AppState& appState)
             const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
             if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
             {
-                glm::vec2 renderPos = house.position + HOUSE_RENDER_OFFSET;
                 if (house.selected)
                 {
-                    glUniform2f(engine.gpu.overlayOffsetLoc, renderPos.x, renderPos.y - 4.0f);
-                    glUniform4f(engine.gpu.overlayColorLoc, 0.95f, 0.18f, 0.18f, 1.0f);
-                    glBindVertexArray(engine.gpu.selectionVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+                    // Calculate center of 2x2 tile footprint with padding
+                    glm::vec2 centerPos = tile_to_world(house.tile + glm::ivec2(1, 1));
+
+                    // Draw 2x2 isometric selection with padding (white color)
+                    const float padding = 10.0f;
+                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
+                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
                 }
             }
+        }
+
+        // Render pending build tile highlight (2x2 green/red filled)
+        if (appState.pendingBuildTile.x >= 0 && appState.pendingBuildTile.y >= 0)
+        {
+            // The pendingBuildTile is the cursor's tile snapped to grid
+            // For a 2x2 footprint, the highlight should be centered on the cursor tile
+            glm::ivec2 tile = appState.pendingBuildTile;
+            glm::vec2 centerWorld = tile_to_world(tile) + HIGHLIGHT_OFFSET;
+
+            // 2x2 isometric tile diamond - vertices relative to center
+            const float hw2 = TILE_HALF_WIDTH * 2.0f;
+            const float hh2 = TILE_HALF_HEIGHT * 2.0f;
+            const float highlightPoly[] = {
+                0.0f,    hh2,      // Top
+                hw2,     0.0f,     // Right
+                0.0f,    -hh2,     // Bottom
+                -hw2,    0.0f      // Left
+            };
+
+            glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(highlightPoly), highlightPoly);
+            glUniform2f(engine.gpu.overlayOffsetLoc, centerWorld.x, centerWorld.y);
+            if (appState.canBuildAtPendingTile)
+                glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 1.0f, 0.0f, 0.4f); // Green
+            else
+                glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.0f, 0.0f, 0.4f); // Red
+            glBindVertexArray(engine.gpu.rectVAO);
+            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
         }
 
         for (const Villager& v : appState.villagers)
@@ -627,6 +745,46 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform4f(engine.gpu.overlayColorLoc, 0.1f, 1.0f, 0.1f, 1.0f);
                 glBindVertexArray(engine.gpu.selectionVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+            }
+
+            // Render build progress bar for building villagers
+            if (v.isBuilding && v.buildingTargetIndex >= 0 && v.buildingTargetIndex < static_cast<int>(appState.houses.size()))
+            {
+                const House& house = appState.houses[v.buildingTargetIndex];
+                if (house.isUnderConstruction)
+                {
+                    // Progress bar background
+                    const float barWidth = 30.0f;
+                    const float barHeight = 4.0f;
+                    const float bgPoly[] = {
+                        -barWidth, 0.0f,
+                         barWidth, 0.0f,
+                         barWidth, barHeight,
+                        -barWidth, barHeight
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(bgPoly), bgPoly);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
+                    glUniform4f(engine.gpu.overlayColorLoc, 0.3f, 0.3f, 0.3f, 0.8f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+
+                    // Progress bar fill
+                    float progressWidth = barWidth * 2.0f * house.buildProgress;
+                    if (progressWidth > 0.0f)
+                    {
+                        const float fillPoly[] = {
+                            -barWidth, 0.0f,
+                            -barWidth + progressWidth, 0.0f,
+                            -barWidth + progressWidth, barHeight,
+                            -barWidth, barHeight
+                        };
+                        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(fillPoly), fillPoly);
+                        glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
+                        glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 0.8f, 0.0f, 1.0f);
+                        glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+                    }
+                }
             }
 
             if (v.selected && v.moving)

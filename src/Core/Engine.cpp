@@ -101,6 +101,40 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
             gAppState->selection.moved = true;
         }
     }
+
+    // Update pending build tile for highlighting
+    if ((gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) && gAppState->selectedBuilding != BuildableBuilding::None)
+    {
+        glm::vec2 worldPos = screen_to_world(glm::vec2(static_cast<float>(xpos), static_cast<float>(ypos)));
+        std::optional<glm::ivec2> tileOpt = world_to_tile(worldPos);
+        if (tileOpt.has_value())
+        {
+            glm::ivec2 tile = tileOpt.value();
+            if (tile.x >= 0 && tile.x < GRID_SIZE - 1 && tile.y >= 0 && tile.y < GRID_SIZE - 1)
+            {
+                gAppState->pendingBuildTile = tile;
+                gAppState->canBuildAtPendingTile = !is_tile_blocked(*gAppState, tile) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 0)) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(0, 1)) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 1));
+            }
+            else
+            {
+                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                gAppState->canBuildAtPendingTile = false;
+            }
+        }
+        else
+        {
+            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+            gAppState->canBuildAtPendingTile = false;
+        }
+    }
+    else
+    {
+        gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+        gAppState->canBuildAtPendingTile = false;
+    }
 }
 
 // GLFW callback fired on mouse button press and release.
@@ -137,54 +171,115 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
-        // Handle building placement
-        if ((gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) && gAppState->selectedBuilding != BuildableBuilding::None)
-        {
-            glm::vec2 worldPos = screen_to_world(glm::vec2(static_cast<float>(gAppState->cursorScreen.x), static_cast<float>(gAppState->cursorScreen.y)));
-            std::optional<glm::ivec2> tileOpt = world_to_tile(worldPos);
-            if (tileOpt.has_value())
-            {
-                glm::ivec2 tile = tileOpt.value();
-                // Check if tile is within bounds
-                if (tile.x >= 0 && tile.x < GRID_SIZE && tile.y >= 0 && tile.y < GRID_SIZE)
-                {
-                    // House is 2x2 tiles, check all tiles are free
-                    bool canPlace = true;
-                    if (gAppState->selectedBuilding == BuildableBuilding::House)
-                    {
-                        if (tile.x + 1 < GRID_SIZE && tile.y + 1 < GRID_SIZE &&
-                            !is_tile_blocked(*gAppState, tile) &&
-                            !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 0)) &&
-                            !is_tile_blocked(*gAppState, tile + glm::ivec2(0, 1)) &&
-                            !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 1)))
-                        {
-                            House house;
-                            house.tile = tile;
-                            house.position = tile_to_world(tile);
-                            house.hp = 500;
-                            house.maxHp = 500;
-                            gAppState->houses.push_back(house);
-                            gAppState->housePopulationBonus += 5;
-                            gAppState->maxPopulation = 5 + gAppState->housePopulationBonus;
-                            canPlace = false;
-                        }
-                    }
-
-                    if (!canPlace)
-                    {
-                        gAppState->selectedBuilding = BuildableBuilding::None;
-                        gAppState->cursorMode = CursorMode::Normal;
-                        return;
-                    }
-                }
-            }
-        }
-
         // Exit garrison cursor mode on left click release
         if (gAppState->cursorMode == CursorMode::Garrison)
         {
             gAppState->cursorMode = CursorMode::Normal;
             glfwSetCursor(window, nullptr);
+            return;
+        }
+
+        // Handle building placement on left click
+        if ((gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) && gAppState->selectedBuilding != BuildableBuilding::None)
+        {
+            if (gAppState->pendingBuildTile.x >= 0 && gAppState->canBuildAtPendingTile)
+            {
+                glm::ivec2 tile = gAppState->pendingBuildTile;
+
+                if (gAppState->selectedBuilding == BuildableBuilding::House)
+                {
+                    if (gAppState->wood >= HOUSE_COST_WOOD)
+                    {
+                        int villagerIndex = -1;
+                        for (int i = 0; i < static_cast<int>(gAppState->villagers.size()); ++i)
+                        {
+                            if (gAppState->villagers[i].selected && !gAppState->villagers[i].isGarrisoned)
+                            {
+                                villagerIndex = i;
+                                break;
+                            }
+                        }
+
+                        if (villagerIndex >= 0)
+                        {
+                            gAppState->wood -= HOUSE_COST_WOOD;
+
+                            House house;
+                            house.tile = tile;
+                            house.position = tile_to_world(tile);
+                            house.hp = 500;
+                            house.maxHp = 500;
+                            house.isUnderConstruction = true;
+                            house.buildProgress = 0.0f;
+                            house.assignedVillagerIndex = villagerIndex;
+                            int buildingIndex = static_cast<int>(gAppState->houses.size());
+                            gAppState->houses.push_back(house);
+                            rebuild_blocked_tiles(*gEngine, *gAppState);
+
+                            Villager& v = gAppState->villagers[villagerIndex];
+                            v.buildingTargetIndex = buildingIndex;
+
+                            float bestDist = 1e9f;
+                            glm::vec2 buildTarget = house.position;
+
+                            for (int dx = -1; dx <= 2; ++dx)
+                            {
+                                for (int dy = -1; dy <= 2; ++dy)
+                                {
+                                    if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                    glm::ivec2 p(tile.x + dx, tile.y + dy);
+                                    if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                    {
+                                        float dist = glm::length(tile_to_world(p) - v.position);
+                                        if (dist < bestDist)
+                                        {
+                                            bestDist = dist;
+                                            buildTarget = tile_to_world(p);
+                                        }
+                                    }
+                                }
+                            }
+
+                            std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
+                            v.waypointQueue.clear();
+                            if (path.size() > 1)
+                            {
+                                v.targetPosition = path[1];
+                                v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                v.moving = true;
+                                for (size_t i = 2; i < path.size(); ++i)
+                                {
+                                    v.waypointQueue.push_back(path[i]);
+                                }
+                            }
+                            else if (path.size() == 1)
+                            {
+                                v.targetPosition = path[0];
+                                v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                            }
+
+                            BuildTask task;
+                            task.villagerIndex = villagerIndex;
+                            task.buildingIndex = buildingIndex;
+                            task.targetTile = tile;
+                            gAppState->buildTasks.push_back(task);
+
+                            gAppState->selectedBuilding = BuildableBuilding::None;
+                            gAppState->cursorMode = CursorMode::Normal;
+                            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                            gAppState->selection.dragging = false;
+                            gAppState->selection.moved = false;
+                            return;
+                        }
+                    }
+                }
+            }
+            gAppState->selectedBuilding = BuildableBuilding::None;
+            gAppState->cursorMode = CursorMode::Normal;
+            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+            gAppState->selection.dragging = false;
+            gAppState->selection.moved = false;
             return;
         }
 
@@ -451,6 +546,101 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             }
             else
             {
+                // Check if right-clicking on an incomplete house to resume building
+                for (size_t i = 0; i < gAppState->houses.size(); ++i)
+                {
+                    House& house = gAppState->houses[i];
+                    const int houseTileIndex = house.tile.y * GRID_SIZE + house.tile.x;
+                    if (house.isUnderConstruction && gAppState->tileVisibilities[houseTileIndex] > 0.0f && house_hit_test_screen(house, gAppState->cursorScreen, gAppState->houseSpriteSize))
+                    {
+                        // Find a selected villager to assign to building
+                        for (Villager& v : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                // Check if villager is already building something else
+                                if (v.isBuilding && v.buildingTargetIndex >= 0)
+                                {
+                                    // Cancel previous building
+                                    if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                                    {
+                                        gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                                    }
+                                }
+
+                                // Set up building task
+                                v.buildingTargetIndex = static_cast<int>(i);
+                                house.assignedVillagerIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
+
+                                // Find adjacent tile to building
+                                float bestDist = 1e9f;
+                                glm::vec2 buildTarget = house.position;
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(house.tile.x + dx, house.tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                buildTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // If villager is not already at build target, set up movement
+                                const float distToTarget = glm::length(buildTarget - v.position);
+                                v.waypointQueue.clear();
+                                if (distToTarget > 1.0f)
+                                {
+                                    std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
+                                    if (path.size() > 1)
+                                    {
+                                        v.targetPosition = path[1];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                        v.isBuilding = false; // Will start building when arrived
+                                        for (size_t j = 2; j < path.size(); ++j)
+                                        {
+                                            v.waypointQueue.push_back(path[j]);
+                                        }
+                                    }
+                                    else if (path.size() == 1)
+                                    {
+                                        v.targetPosition = path[0];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                                        v.isBuilding = false;
+                                    }
+                                    else
+                                    {
+                                        // Can't find path, start building anyway
+                                        v.moving = false;
+                                        v.isBuilding = true;
+                                        v.builderFrameIndex = 0;
+                                        v.builderAnimTimer = 0.0f;
+                                    }
+                                }
+                                else
+                                {
+                                    // Villager is already at build site, start building immediately
+                                    v.moving = false;
+                                    v.isBuilding = true;
+                                    v.builderFrameIndex = 0;
+                                    v.builderAnimTimer = 0.0f;
+                                }
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                }
+
                 const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
                 const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
                 if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
@@ -481,6 +671,18 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             for (Villager& v : gAppState->villagers)
             {
                 if (!v.selected) continue;
+
+                // Abort building if villager is given a new move command
+                if (v.buildingTargetIndex >= 0)
+                {
+                    // Clear the building assignment
+                    if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                    {
+                        gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                    }
+                    v.isBuilding = false;
+                    v.buildingTargetIndex = -1;
+                }
 
                 glm::vec2 finalTarget = (destIndex < groupDestinations.size()) 
                     ? tile_to_world(groupDestinations[destIndex++]) 
@@ -565,6 +767,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
     }
 }
 
+void rebuild_blocked_tiles(EngineState& engine, AppState& appState)
+{
+	engine.blockedTileTranslations = blocked_tile_translations(appState);
+	glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.blockedInstanceVBO);
+	glBufferData(GL_ARRAY_BUFFER, engine.blockedTileTranslations.size() * sizeof(glm::vec2), engine.blockedTileTranslations.data(), GL_STATIC_DRAW);
+}
+
 // GLFW callback fired on key press and release.
 // Handles T key for garrison cursor mode toggle.
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -636,6 +845,12 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         {
             std::cout << "Q key pressed - entering build eco mode" << std::endl;
             gAppState->cursorMode = CursorMode::BuildEco;
+            gAppState->selectedBuilding = BuildableBuilding::None;
+        }
+        else if (gAppState->cursorMode == CursorMode::BuildEco)
+        {
+            std::cout << "Q key pressed - selecting house" << std::endl;
+            gAppState->selectedBuilding = BuildableBuilding::House;
         }
     }
 
@@ -645,6 +860,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         {
             std::cout << "W key pressed - entering build mil mode" << std::endl;
             gAppState->cursorMode = CursorMode::BuildMil;
+            gAppState->selectedBuilding = BuildableBuilding::None;
         }
     }
 
@@ -658,6 +874,32 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
                 v.waypointQueue.clear();
                 v.moving = false;
                 v.targetPosition = v.position;
+            }
+        }
+    }
+
+    if (key == GLFW_KEY_DELETE && action == GLFW_PRESS)
+    {
+        for (size_t i = 0; i < gAppState->houses.size(); )
+        {
+            House& house = gAppState->houses[i];
+            if (house.selected)
+            {
+                // Reset villager if it was building this house
+                if (house.assignedVillagerIndex >= 0 && house.assignedVillagerIndex < static_cast<int>(gAppState->villagers.size()))
+                {
+                    Villager& v = gAppState->villagers[house.assignedVillagerIndex];
+                    v.isBuilding = false;
+                    v.buildingTargetIndex = -1;
+                }
+
+                // Remove the house
+                gAppState->houses.erase(gAppState->houses.begin() + i);
+                rebuild_blocked_tiles(*gEngine, *gAppState);
+            }
+            else
+            {
+                ++i;
             }
         }
     }

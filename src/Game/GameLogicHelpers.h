@@ -14,3 +14,4 @@ bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorS
 bool house_hit_test_screen(const House& house, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile);
 std::vector<glm::vec2> blocked_tile_translations(const AppState& appState);
+bool can_place_house(const AppState& appState, const glm::ivec2& tile);
