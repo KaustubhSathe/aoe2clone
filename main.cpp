@@ -190,6 +190,42 @@ int main()
         std::cerr << "Failed to load stop icon 50721_04.png\n";
     }
 
+    // Load economic building icons
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_35.png", engine.houseIcon))
+    {
+        std::cerr << "Failed to load house icon 50705_35.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_20.png", engine.millIcon))
+    {
+        std::cerr << "Failed to load mill icon 50705_20.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_40.png", engine.miningCampIcon))
+    {
+        std::cerr << "Failed to load mining camp icon 50705_40.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_41.png", engine.lumberCampIcon))
+    {
+        std::cerr << "Failed to load lumber camp icon 50705_41.png\n";
+    }
+
+    // Load military building icons
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_03.png", engine.barracksIcon))
+    {
+        std::cerr << "Failed to load barracks icon 50705_03.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_01.png", engine.archeryRangeIcon))
+    {
+        std::cerr << "Failed to load archery range icon 50705_01.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_24.png", engine.stableIcon))
+    {
+        std::cerr << "Failed to load stable icon 50705_24.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_23.png", engine.siegeWorkshopIcon))
+    {
+        std::cerr << "Failed to load siege workshop icon 50705_23.png\n";
+    }
+
     // Create garrison cursor - try custom cursor first, fall back to ARROW cursor for testing
     gGarrisonCursor = create_cursor_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_70.png", 0, 0);
     if (gGarrisonCursor == nullptr)
@@ -467,6 +503,14 @@ int main()
     glDeleteTextures(1, &engine.repairIcon.texture);
     glDeleteTextures(1, &engine.garrisonIcon.texture);
     glDeleteTextures(1, &engine.stopIcon.texture);
+    glDeleteTextures(1, &engine.houseIcon.texture);
+    glDeleteTextures(1, &engine.millIcon.texture);
+    glDeleteTextures(1, &engine.miningCampIcon.texture);
+    glDeleteTextures(1, &engine.lumberCampIcon.texture);
+    glDeleteTextures(1, &engine.barracksIcon.texture);
+    glDeleteTextures(1, &engine.archeryRangeIcon.texture);
+    glDeleteTextures(1, &engine.stableIcon.texture);
+    glDeleteTextures(1, &engine.siegeWorkshopIcon.texture);
 
     if (gGarrisonCursor != nullptr)
     {

@@ -47,6 +47,15 @@ struct PineTree
     int maxHp = 100;
 };
 
+struct House
+{
+    glm::ivec2 tile = glm::ivec2(0);
+    glm::vec2 position = glm::vec2(0.0f);
+    bool selected = false;
+    int hp = 500;
+    int maxHp = 500;
+};
+
 struct TownCenter
 {
     glm::ivec2 tile = glm::ivec2(0);
@@ -87,7 +96,18 @@ struct FPSState
 enum class CursorMode
 {
     Normal,
-    Garrison
+    Garrison,
+    BuildEco,
+    BuildMil
+};
+
+enum class BuildableBuilding
+{
+    None,
+    House,
+    Mill,
+    MiningCamp,
+    LumberCamp
 };
 
 struct AppState
@@ -95,9 +115,11 @@ struct AppState
     std::vector<Villager> villagers;
     std::vector<PineTree> pineTrees;
     std::vector<TownCenter> townCenters;
-    
+    std::vector<House> houses;
+
     glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f);
     glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f);
+    glm::vec2 houseSpriteSize = glm::vec2(128.0f, 128.0f);
     SelectionState selection;
     glm::dvec2 cursorScreen = glm::dvec2(0.0);
     int selectedTreeIndex = -1;
@@ -112,10 +134,14 @@ struct AppState
     int wood = 200;
     int stone = 150;
     int gold = 100;
-    
+
+    int maxPopulation = 5;
+    int housePopulationBonus = 0;
+
     float inGameTime = 0.0f;
     int currentAge = 1; // 1 = Dark Age
     FPSState fps;
     CursorMode cursorMode = CursorMode::Normal;
+    BuildableBuilding selectedBuilding = BuildableBuilding::None;
 };
 

@@ -75,6 +75,7 @@ struct EngineState {
     AnimationSet idleAnimation;
     std::optional<TextureFrame> pineTreeFrame;
     std::optional<TextureFrame> townCenterFrame;
+    std::optional<TextureFrame> houseFrame;
     
     std::vector<glm::vec2> translations;
     std::vector<glm::vec2> blockedTileTranslations;
@@ -84,6 +85,14 @@ struct EngineState {
     TextureFrame repairIcon;
     TextureFrame garrisonIcon;
     TextureFrame stopIcon;
+    TextureFrame houseIcon;
+    TextureFrame millIcon;
+    TextureFrame miningCampIcon;
+    TextureFrame lumberCampIcon;
+    TextureFrame barracksIcon;
+    TextureFrame archeryRangeIcon;
+    TextureFrame stableIcon;
+    TextureFrame siegeWorkshopIcon;
 };
 
 

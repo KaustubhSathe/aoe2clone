@@ -149,9 +149,25 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
             TownCenter& tc = appState.townCenters[tcIdx];
             if (tc.villagerQueueCount > 0)
             {
-                tc.villagerTrainingTimer += deltaTime;
+                // Pause training if population is full
+                if (static_cast<int>(appState.villagers.size()) >= appState.maxPopulation)
+                {
+                    // Don't increment timer when population is full
+                }
+                else
+                {
+                    tc.villagerTrainingTimer += deltaTime;
+                }
+
                 if (tc.villagerTrainingTimer >= 14.7f)
                 {
+                    // Check if population limit reached (shouldn't happen due to pause above, but safe check)
+                    if (static_cast<int>(appState.villagers.size()) >= appState.maxPopulation)
+                    {
+                        // Population full, don't create villager - keep it in queue
+                        tc.villagerTrainingTimer = 0.0f;
+                        continue;
+                    }
                     tc.villagerQueueCount--;
                     tc.villagerTrainingTimer = 0.0f;
                     
@@ -404,7 +420,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         // isometric depth sorting: higher world Y is drawn first (further away).
         // ---------------------------------------------------------------------
         struct RenderPayload {
-            int type; // 0=PineTree, 1=TownCenter, 2=Villager
+            int type; // 0=PineTree, 1=TownCenter, 2=Villager, 3=House
             size_t index;
             float sortY;
         };
@@ -433,6 +449,17 @@ void RenderScene(EngineState& engine, AppState& appState)
                 {
                     renderQueue.push_back({1, i, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y});
                 }
+            }
+        }
+
+        // Houses use houseIcon for rendering (same as UI icon)
+        for (size_t i = 0; i < appState.houses.size(); i++)
+        {
+            const House& house = appState.houses[i];
+            const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
+            if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
+            {
+                renderQueue.push_back({3, i, house.position.y + HOUSE_RENDER_OFFSET.y});
             }
         }
         
@@ -490,16 +517,28 @@ void RenderScene(EngineState& engine, AppState& appState)
                         ? walk_animation_index(v.facingDirection, v.walkFrameIndex, static_cast<int>(engine.walkAnimation.frames.size()))
                         : facing_index_from_direction(v.facingDirection, static_cast<int>(engine.idleAnimation.frames.size()));
                     const TextureFrame& activeFrame = activeAnimation.frames[static_cast<size_t>(frameIndex)];
-                    
+
                     glUniform2f(engine.gpu.spriteSizeLoc, spriteScale.x, spriteScale.y);
                     glUniform1f(engine.gpu.spriteVisLoc, 1.0f); // Always lit
-                    
+
                     glActiveTexture(GL_TEXTURE0);
                     glBindTexture(GL_TEXTURE_2D, activeFrame.texture);
                     // Standard offset used by Villagers (they pivot around TILE_HALF_HEIGHT)
                     glUniform2f(engine.gpu.spritePosLoc, v.position.x, v.position.y - TILE_HALF_HEIGHT);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                 }
+            }
+            else if (payload.type == 3) // House
+            {
+                const House& house = appState.houses[payload.index];
+                const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
+                glUniform2f(engine.gpu.spriteSizeLoc, appState.houseSpriteSize.x, appState.houseSpriteSize.y);
+                glUniform1f(engine.gpu.spriteVisLoc, appState.tileVisibilities[houseIndex]);
+
+                glActiveTexture(GL_TEXTURE0);
+                glBindTexture(GL_TEXTURE_2D, engine.houseIcon.texture);
+                glUniform2f(engine.gpu.spritePosLoc, house.position.x + HOUSE_RENDER_OFFSET.x, house.position.y + HOUSE_RENDER_OFFSET.y);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
             }
         }
         
@@ -563,7 +602,23 @@ void RenderScene(EngineState& engine, AppState& appState)
                 }
             }
         }
-        
+
+        for (const House& house : appState.houses)
+        {
+            const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
+            if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
+            {
+                glm::vec2 renderPos = house.position + HOUSE_RENDER_OFFSET;
+                if (house.selected)
+                {
+                    glUniform2f(engine.gpu.overlayOffsetLoc, renderPos.x, renderPos.y - 4.0f);
+                    glUniform4f(engine.gpu.overlayColorLoc, 0.95f, 0.18f, 0.18f, 1.0f);
+                    glBindVertexArray(engine.gpu.selectionVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+                }
+            }
+        }
+
         for (const Villager& v : appState.villagers)
         {
             if (v.selected)
@@ -723,9 +778,20 @@ void RenderUI(EngineState& engine, AppState& appState)
         ImGui::Text("Stone: %d", appState.stone);
         ImGui::SameLine(330.0f);
         ImGui::Text("Gold: %d", appState.gold);
-        
+
         ImGui::SameLine(440.0f);
-        ImGui::Text("Pop: %d", popCount);
+        bool isPopFull = popCount >= appState.maxPopulation;
+        if (isPopFull)
+        {
+            // Blink red background when population is full
+            float blink = static_cast<float>(sin(ImGui::GetTime() * 6.0f) > 0.0);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, blink, blink, 1.0f));
+        }
+        ImGui::Text("Pop: %d/%d", popCount, appState.maxPopulation);
+        if (isPopFull)
+        {
+            ImGui::PopStyleColor();
+        }
         ImGui::SameLine(540.0f);
         ImGui::Text("Idle: %d", idleCount);
         ImGui::SameLine(640.0f);
@@ -804,42 +870,95 @@ void RenderUI(EngineState& engine, AppState& appState)
             ImGui::TableSetColumnIndex(0);
             if (firstSelectedVillager)
             {
-                if (ImGui::ImageButton("build_eco", (ImTextureID)(intptr_t)engine.buildEconomicIcon.texture, ImVec2(40, 40))) { }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Economic Building (Q)");
-                ImGui::SameLine();
-
-                if (ImGui::ImageButton("build_mil", (ImTextureID)(intptr_t)engine.buildMilitaryIcon.texture, ImVec2(40, 40))) { }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Military Building (W)");
-                ImGui::SameLine();
-
-                if (ImGui::ImageButton("repair", (ImTextureID)(intptr_t)engine.repairIcon.texture, ImVec2(40, 40))) { }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Repair (R)");
-                ImGui::SameLine();
-
-                if (ImGui::ImageButton("garrison", (ImTextureID)(intptr_t)engine.garrisonIcon.texture, ImVec2(40, 40)))
+                if (appState.cursorMode == CursorMode::BuildEco)
                 {
-                    appState.cursorMode = CursorMode::Garrison;
-                }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Garrison (T)");
-                ImGui::SameLine();
-
-                if (ImGui::ImageButton("stop", (ImTextureID)(intptr_t)engine.stopIcon.texture, ImVec2(40, 40)))
-                {
-                    for (Villager& v : appState.villagers)
+                    // Show economic buildings
+                    if (ImGui::ImageButton("house", (ImTextureID)(intptr_t)engine.houseIcon.texture, ImVec2(40, 40)))
                     {
-                        if (v.selected)
+                        appState.selectedBuilding = BuildableBuilding::House;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("House (Q)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("mill", (ImTextureID)(intptr_t)engine.millIcon.texture, ImVec2(40, 40)))
+                    {
+                        appState.selectedBuilding = BuildableBuilding::Mill;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mill (W)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("mining_camp", (ImTextureID)(intptr_t)engine.miningCampIcon.texture, ImVec2(40, 40)))
+                    {
+                        appState.selectedBuilding = BuildableBuilding::MiningCamp;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mining Camp (E)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("lumber_camp", (ImTextureID)(intptr_t)engine.lumberCampIcon.texture, ImVec2(40, 40)))
+                    {
+                        appState.selectedBuilding = BuildableBuilding::LumberCamp;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lumber Camp (R)");
+                }
+                else if (appState.cursorMode == CursorMode::BuildMil)
+                {
+                    // Show military buildings
+                    if (ImGui::ImageButton("barracks", (ImTextureID)(intptr_t)engine.barracksIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Barracks (Q)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("archery_range", (ImTextureID)(intptr_t)engine.archeryRangeIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Archery Range (W)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("stable", (ImTextureID)(intptr_t)engine.stableIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stable (E)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("siege_workshop", (ImTextureID)(intptr_t)engine.siegeWorkshopIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Siege Workshop (R)");
+                }
+                else
+                {
+                    // Show normal command buttons
+                    if (ImGui::ImageButton("build_eco", (ImTextureID)(intptr_t)engine.buildEconomicIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Economic Building (Q)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("build_mil", (ImTextureID)(intptr_t)engine.buildMilitaryIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Military Building (W)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("repair", (ImTextureID)(intptr_t)engine.repairIcon.texture, ImVec2(40, 40))) { }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Repair (R)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("garrison", (ImTextureID)(intptr_t)engine.garrisonIcon.texture, ImVec2(40, 40)))
+                    {
+                        appState.cursorMode = CursorMode::Garrison;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Garrison (T)");
+                    ImGui::SameLine();
+
+                    if (ImGui::ImageButton("stop", (ImTextureID)(intptr_t)engine.stopIcon.texture, ImVec2(40, 40)))
+                    {
+                        for (Villager& v : appState.villagers)
                         {
-                            v.waypointQueue.clear();
-                            v.moving = false;
-                            v.targetPosition = v.position;
+                            if (v.selected)
+                            {
+                                v.waypointQueue.clear();
+                                v.moving = false;
+                                v.targetPosition = v.position;
+                            }
                         }
                     }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop (G)");
                 }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop (G)");
             }
             else if (firstSelectedTC)
             {
-                if (firstSelectedTC->villagerQueueCount < 15)
+                bool canCreateVillager = firstSelectedTC->villagerQueueCount < 15 && static_cast<int>(appState.villagers.size()) < appState.maxPopulation;
+                if (canCreateVillager)
                 {
                     if (ImGui::Button("Create Villager (Q)", ImVec2(160, 40)) || ImGui::IsKeyPressed(ImGuiKey_Q, false))
                     {
@@ -945,7 +1064,20 @@ void RenderUI(EngineState& engine, AppState& appState)
                 {
                     ImGui::SameLine(0.0f, 20.0f);
                     ImGui::BeginGroup();
-                    ImGui::Text("Training Villager (%d/15)", firstSelectedTC->villagerQueueCount);
+
+                    bool isPopFull = static_cast<int>(appState.villagers.size()) >= appState.maxPopulation;
+                    if (isPopFull)
+                    {
+                        float blink = static_cast<float>(sin(ImGui::GetTime() * 6.0f) > 0.0);
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, blink, blink, 1.0f));
+                        ImGui::Text("Training Villager (%d/15) - PAUSED", firstSelectedTC->villagerQueueCount);
+                        ImGui::PopStyleColor();
+                    }
+                    else
+                    {
+                        ImGui::Text("Training Villager (%d/15)", firstSelectedTC->villagerQueueCount);
+                    }
+
                     const float progress = firstSelectedTC->villagerTrainingTimer / 14.7f;
                     char buf[32];
                     snprintf(buf, sizeof(buf), "%.1fs", 14.7f - firstSelectedTC->villagerTrainingTimer);

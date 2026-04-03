@@ -46,6 +46,11 @@ void clear_selection(AppState& appState)
     {
         tc.selected = false;
     }
+    for (House& house : appState.houses)
+    {
+        house.selected = false;
+    }
+    appState.selectedBuilding = BuildableBuilding::None;
 }
 
 bool point_in_polygon(const glm::vec2& p, const std::vector<glm::vec2>& polygon)
@@ -88,6 +93,19 @@ bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorS
     return point_in_polygon(glm::vec2(static_cast<float>(cursorScreen.x), static_cast<float>(cursorScreen.y)), screenPoly);
 }
 
+bool house_hit_test_screen(const House& house, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 houseOrigin = house.position + HOUSE_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(houseOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(houseOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
 {
     for (const PineTree& tree : appState.pineTrees)
@@ -98,6 +116,14 @@ bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
     {
         if (tile.x >= tc.tile.x && tile.x < tc.tile.x + 4 &&
             tile.y >= tc.tile.y && tile.y < tc.tile.y + 4)
+        {
+            return true;
+        }
+    }
+    for (const House& house : appState.houses)
+    {
+        if (tile.x >= house.tile.x && tile.x < house.tile.x + 2 &&
+            tile.y >= house.tile.y && tile.y < house.tile.y + 2)
         {
             return true;
         }
@@ -119,6 +145,16 @@ std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
             for (int dy = 0; dy < 4; dy++)
             {
                 blockedTiles.push_back(tile_to_world(tc.tile + glm::ivec2(dx, dy)));
+            }
+        }
+    }
+    for (const House& house : appState.houses)
+    {
+        for (int dx = 0; dx < 2; dx++)
+        {
+            for (int dy = 0; dy < 2; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(house.tile + glm::ivec2(dx, dy)));
             }
         }
     }

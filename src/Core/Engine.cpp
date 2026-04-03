@@ -13,27 +13,40 @@
 // =============================================================================
 
 // Reads keyboard state every frame and moves the camera accordingly.
-// WASD and arrow keys pan the camera; Escape closes the window.
+// Mouse edge panning: when cursor is near screen edges, camera moves in that direction.
 // Camera speed is scaled by (1/zoom) so panning feels consistent at all zoom levels.
 void processInput(GLFWwindow* window)
 {
-    const float velocity = cameraSpeed * deltaTime * (1.0f / zoom);
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS)
-    {
-        cameraY += velocity;
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS)
-    {
-        cameraY -= velocity;
-    }
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS)
-    {
-        cameraX -= velocity;
-    }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS)
-    {
-        cameraX += velocity;
-    }
+    // Edge scrolling configuration
+    const float EDGE_THRESHOLD = 50.0f;
+    const float MAX_EDGE_VELOCITY_MULTIPLIER = 2.5f;
+
+    // Get current mouse position
+    double mouseX, mouseY;
+    glfwGetCursorPos(window, &mouseX, &mouseY);
+
+    // Calculate how close to each edge (0.0 = at threshold, 1.0 = at corner)
+    float leftEdge = (EDGE_THRESHOLD - static_cast<float>(mouseX)) / EDGE_THRESHOLD;
+    float rightEdge = (static_cast<float>(mouseX) - (SCR_WIDTH - EDGE_THRESHOLD)) / EDGE_THRESHOLD;
+    float topEdge = (EDGE_THRESHOLD - static_cast<float>(mouseY)) / EDGE_THRESHOLD;
+    float bottomEdge = (static_cast<float>(mouseY) - (SCR_HEIGHT - EDGE_THRESHOLD)) / EDGE_THRESHOLD;
+
+    // Clamp to [0, 1] range
+    leftEdge = std::max(0.0f, std::min(1.0f, leftEdge));
+    rightEdge = std::max(0.0f, std::min(1.0f, rightEdge));
+    topEdge = std::max(0.0f, std::min(1.0f, topEdge));
+    bottomEdge = std::max(0.0f, std::min(1.0f, bottomEdge));
+
+    // Calculate velocity based on proximity to edge
+    float edgeVelocity = cameraSpeed * deltaTime * (1.0f / zoom);
+    float leftVel = -leftEdge * edgeVelocity * MAX_EDGE_VELOCITY_MULTIPLIER;
+    float rightVel = rightEdge * edgeVelocity * MAX_EDGE_VELOCITY_MULTIPLIER;
+    float upVel = topEdge * edgeVelocity * MAX_EDGE_VELOCITY_MULTIPLIER;
+    float downVel = -bottomEdge * edgeVelocity * MAX_EDGE_VELOCITY_MULTIPLIER;
+
+    // Apply camera movement
+    cameraX += leftVel + rightVel;
+    cameraY += upVel + downVel;
 
     // Garrison cursor mode is now handled by key_callback
     // This only handles Escape key cancellation in case key callback didn't fire
@@ -124,6 +137,49 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
+        // Handle building placement
+        if ((gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) && gAppState->selectedBuilding != BuildableBuilding::None)
+        {
+            glm::vec2 worldPos = screen_to_world(glm::vec2(static_cast<float>(gAppState->cursorScreen.x), static_cast<float>(gAppState->cursorScreen.y)));
+            std::optional<glm::ivec2> tileOpt = world_to_tile(worldPos);
+            if (tileOpt.has_value())
+            {
+                glm::ivec2 tile = tileOpt.value();
+                // Check if tile is within bounds
+                if (tile.x >= 0 && tile.x < GRID_SIZE && tile.y >= 0 && tile.y < GRID_SIZE)
+                {
+                    // House is 2x2 tiles, check all tiles are free
+                    bool canPlace = true;
+                    if (gAppState->selectedBuilding == BuildableBuilding::House)
+                    {
+                        if (tile.x + 1 < GRID_SIZE && tile.y + 1 < GRID_SIZE &&
+                            !is_tile_blocked(*gAppState, tile) &&
+                            !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 0)) &&
+                            !is_tile_blocked(*gAppState, tile + glm::ivec2(0, 1)) &&
+                            !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 1)))
+                        {
+                            House house;
+                            house.tile = tile;
+                            house.position = tile_to_world(tile);
+                            house.hp = 500;
+                            house.maxHp = 500;
+                            gAppState->houses.push_back(house);
+                            gAppState->housePopulationBonus += 5;
+                            gAppState->maxPopulation = 5 + gAppState->housePopulationBonus;
+                            canPlace = false;
+                        }
+                    }
+
+                    if (!canPlace)
+                    {
+                        gAppState->selectedBuilding = BuildableBuilding::None;
+                        gAppState->cursorMode = CursorMode::Normal;
+                        return;
+                    }
+                }
+            }
+        }
+
         // Exit garrison cursor mode on left click release
         if (gAppState->cursorMode == CursorMode::Garrison)
         {
@@ -183,14 +239,33 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 }
                 else
                 {
-                    for (Villager& v : gAppState->villagers)
+                    int clickedHouseIndex = -1;
+                    for (int i = static_cast<int>(gAppState->houses.size()) - 1; i >= 0; i--)
                     {
-                        if (v.isGarrisoned) continue;
-                        const glm::vec2 vsp = world_to_screen(v.position);
-                        if (villager_hit_test_screen(vsp, gAppState->cursorScreen))
+                        const House& house = gAppState->houses[i];
+                        const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
+                        if (gAppState->tileVisibilities[houseIndex] > 0.0f && house_hit_test_screen(house, gAppState->cursorScreen, gAppState->houseSpriteSize))
                         {
-                            v.selected = true;
-                            break; // Select only one villager on a single click
+                            clickedHouseIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (clickedHouseIndex >= 0)
+                    {
+                        gAppState->houses[static_cast<size_t>(clickedHouseIndex)].selected = true;
+                    }
+                    else
+                    {
+                        for (Villager& v : gAppState->villagers)
+                        {
+                            if (v.isGarrisoned) continue;
+                            const glm::vec2 vsp = world_to_screen(v.position);
+                            if (villager_hit_test_screen(vsp, gAppState->cursorScreen))
+                            {
+                                v.selected = true;
+                                break; // Select only one villager on a single click
+                            }
                         }
                     }
                 }
@@ -535,6 +610,55 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             std::cout << "Escape - exiting garrison mode" << std::endl;
             gAppState->cursorMode = CursorMode::Normal;
             glfwSetCursor(window, nullptr);
+        }
+        else if (gAppState->cursorMode == CursorMode::BuildEco)
+        {
+            std::cout << "Escape - exiting build eco mode" << std::endl;
+            gAppState->cursorMode = CursorMode::Normal;
+            gAppState->selectedBuilding = BuildableBuilding::None;
+        }
+        else if (gAppState->cursorMode == CursorMode::BuildMil)
+        {
+            std::cout << "Escape - exiting build mil mode" << std::endl;
+            gAppState->cursorMode = CursorMode::Normal;
+            gAppState->selectedBuilding = BuildableBuilding::None;
+        }
+        else
+        {
+            gAppState->cursorMode = CursorMode::Normal;
+            clear_selection(*gAppState);
+        }
+    }
+
+    if (key == GLFW_KEY_Q && action == GLFW_PRESS)
+    {
+        if (gAppState->cursorMode == CursorMode::Normal)
+        {
+            std::cout << "Q key pressed - entering build eco mode" << std::endl;
+            gAppState->cursorMode = CursorMode::BuildEco;
+        }
+    }
+
+    if (key == GLFW_KEY_W && action == GLFW_PRESS)
+    {
+        if (gAppState->cursorMode == CursorMode::Normal)
+        {
+            std::cout << "W key pressed - entering build mil mode" << std::endl;
+            gAppState->cursorMode = CursorMode::BuildMil;
+        }
+    }
+
+    if (key == GLFW_KEY_G && action == GLFW_PRESS)
+    {
+        std::cout << "G key pressed - stopping selected villagers" << std::endl;
+        for (Villager& v : gAppState->villagers)
+        {
+            if (v.selected)
+            {
+                v.waypointQueue.clear();
+                v.moving = false;
+                v.targetPosition = v.position;
+            }
         }
     }
 }
