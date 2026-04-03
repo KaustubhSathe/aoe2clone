@@ -805,19 +805,25 @@ void RenderUI(EngineState& engine, AppState& appState)
             if (firstSelectedVillager)
             {
                 if (ImGui::ImageButton("build_eco", (ImTextureID)(intptr_t)engine.buildEconomicIcon.texture, ImVec2(40, 40))) { }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Economic Building");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Economic Building (Q)");
                 ImGui::SameLine();
-                
+
                 if (ImGui::ImageButton("build_mil", (ImTextureID)(intptr_t)engine.buildMilitaryIcon.texture, ImVec2(40, 40))) { }
-                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Military Building");
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Build Military Building (W)");
                 ImGui::SameLine();
-                
-                if (ImGui::Button("Repair", ImVec2(80, 48))) { }
-                
-                if (ImGui::Button("Garrison", ImVec2(80, 48))) { }
+
+                if (ImGui::ImageButton("repair", (ImTextureID)(intptr_t)engine.repairIcon.texture, ImVec2(40, 40))) { }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Repair (R)");
                 ImGui::SameLine();
-                
-                if (ImGui::Button("Stop", ImVec2(80, 48))) 
+
+                if (ImGui::ImageButton("garrison", (ImTextureID)(intptr_t)engine.garrisonIcon.texture, ImVec2(40, 40)))
+                {
+                    appState.cursorMode = CursorMode::Garrison;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Garrison (T)");
+                ImGui::SameLine();
+
+                if (ImGui::ImageButton("stop", (ImTextureID)(intptr_t)engine.stopIcon.texture, ImVec2(40, 40)))
                 {
                     for (Villager& v : appState.villagers)
                     {
@@ -829,6 +835,7 @@ void RenderUI(EngineState& engine, AppState& appState)
                         }
                     }
                 }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stop (G)");
             }
             else if (firstSelectedTC)
             {

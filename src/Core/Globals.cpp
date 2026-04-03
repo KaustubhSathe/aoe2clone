@@ -1,4 +1,5 @@
 #include "Globals.h"
+#include <GLFW/glfw3.h>
 
 unsigned int SCR_WIDTH = 1280;
 unsigned int SCR_HEIGHT = 720;
@@ -12,3 +13,4 @@ float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
 AppState* gAppState = nullptr;
+GLFWcursor* gGarrisonCursor = nullptr;

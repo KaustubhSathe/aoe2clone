@@ -51,6 +51,7 @@ int main()
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
+    glfwSetKeyCallback(window, key_callback);
 
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
@@ -82,6 +83,7 @@ int main()
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
     ImGui::StyleColorsDark();
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowRounding = 0.0f;
@@ -174,6 +176,30 @@ int main()
     if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_32.png", engine.buildMilitaryIcon))
     {
         std::cerr << "Failed to load build military icon 50721_32.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_29.png", engine.repairIcon))
+    {
+        std::cerr << "Failed to load repair icon 50721_29.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_70.png", engine.garrisonIcon))
+    {
+        std::cerr << "Failed to load garrison icon 50721_70.png\n";
+    }
+    if (!load_texture_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_04.png", engine.stopIcon))
+    {
+        std::cerr << "Failed to load stop icon 50721_04.png\n";
+    }
+
+    // Create garrison cursor - try custom cursor first, fall back to ARROW cursor for testing
+    gGarrisonCursor = create_cursor_from_png(std::filesystem::path("assets") / "actions_icons" / "50721_70.png", 0, 0);
+    if (gGarrisonCursor == nullptr)
+    {
+        std::cerr << "Failed to create custom garrison cursor, using ARROW cursor\n";
+        gGarrisonCursor = glfwCreateStandardCursor(GLFW_ARROW_CURSOR);
+    }
+    if (gGarrisonCursor == nullptr)
+    {
+        std::cerr << "Failed to create even standard cursor!\n";
     }
 
     // -------------------------------------------------------------------------
@@ -438,6 +464,14 @@ int main()
     }
     glDeleteTextures(1, &engine.buildEconomicIcon.texture);
     glDeleteTextures(1, &engine.buildMilitaryIcon.texture);
+    glDeleteTextures(1, &engine.repairIcon.texture);
+    glDeleteTextures(1, &engine.garrisonIcon.texture);
+    glDeleteTextures(1, &engine.stopIcon.texture);
+
+    if (gGarrisonCursor != nullptr)
+    {
+        glfwDestroyCursor(gGarrisonCursor);
+    }
 
     glDeleteVertexArrays(1, &engine.gpu.tileVAO);
     glDeleteVertexArrays(1, &engine.gpu.outlineVAO);

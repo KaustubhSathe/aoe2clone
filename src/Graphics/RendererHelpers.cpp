@@ -331,3 +331,126 @@ int walk_animation_index(const glm::vec2& direction, int gaitFrame, int frameCou
     const int rawIndex = directionGroup * WALK_FRAMES_PER_DIRECTION + (gaitFrame % WALK_FRAMES_PER_DIRECTION);
     return rawIndex % frameCount;
 }
+
+GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int xhot, int yhot)
+{
+    IWICImagingFactory* imagingFactory = nullptr;
+    const HRESULT factoryResult = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&imagingFactory));
+    if (FAILED(factoryResult))
+    {
+        std::cerr << "Failed to create WIC imaging factory for cursor\n";
+        return nullptr;
+    }
+
+    IWICBitmapDecoder* decoder = nullptr;
+    IWICBitmapFrameDecode* frame = nullptr;
+    IWICFormatConverter* converter = nullptr;
+
+    const HRESULT decoderResult = imagingFactory->CreateDecoderFromFilename(
+        imagePath.c_str(),
+        nullptr,
+        GENERIC_READ,
+        WICDecodeMetadataCacheOnDemand,
+        &decoder);
+    if (FAILED(decoderResult))
+    {
+        std::cerr << "Failed to decode texture for cursor: " << imagePath.string() << '\n';
+        safe_release(imagingFactory);
+        return nullptr;
+    }
+
+    HRESULT result = decoder->GetFrame(0, &frame);
+    if (FAILED(result))
+    {
+        safe_release(decoder);
+        safe_release(imagingFactory);
+        std::cerr << "Failed to read PNG frame for cursor: " << imagePath.string() << '\n';
+        return nullptr;
+    }
+
+    result = imagingFactory->CreateFormatConverter(&converter);
+    if (FAILED(result))
+    {
+        safe_release(frame);
+        safe_release(decoder);
+        safe_release(imagingFactory);
+        std::cerr << "Failed to create WIC format converter for cursor\n";
+        return nullptr;
+    }
+
+    result = converter->Initialize(
+        frame,
+        GUID_WICPixelFormat32bppPBGRA,
+        WICBitmapDitherTypeNone,
+        nullptr,
+        0.0,
+        WICBitmapPaletteTypeCustom);
+    if (FAILED(result))
+    {
+        safe_release(converter);
+        safe_release(frame);
+        safe_release(decoder);
+        safe_release(imagingFactory);
+        std::cerr << "Failed to initialize WIC converter for cursor\n";
+        return nullptr;
+    }
+
+    UINT width = 0;
+    UINT height = 0;
+    converter->GetSize(&width, &height);
+
+    std::cout << "Cursor image loaded: " << imagePath.string() << " - dimensions: " << width << "x" << height << std::endl;
+
+    std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+    result = converter->CopyPixels(
+        nullptr,
+        width * 4,
+        static_cast<UINT>(pixels.size()),
+        pixels.data());
+    if (FAILED(result))
+    {
+        safe_release(converter);
+        safe_release(frame);
+        safe_release(decoder);
+        safe_release(imagingFactory);
+        std::cerr << "Failed to copy PNG pixels for cursor: " << imagePath.string() << '\n';
+        return nullptr;
+    }
+
+    std::cout << "Cursor pixels copied, size: " << pixels.size() << " bytes" << std::endl;
+
+    safe_release(converter);
+    safe_release(frame);
+    safe_release(decoder);
+    safe_release(imagingFactory);
+
+    // WIC gives us BGRA, but GLFW cursors expect RGBA on Windows
+    // Swap R and B channels
+    for (size_t i = 0; i < pixels.size(); i += 4)
+    {
+        std::swap(pixels[i], pixels[i + 2]);  // Swap R and B
+    }
+
+    std::cout << "Cursor pixels converted from BGRA to RGBA" << std::endl;
+
+    GLFWimage GLFWimage;
+    GLFWimage.width = static_cast<int>(width);
+    GLFWimage.height = static_cast<int>(height);
+    GLFWimage.pixels = pixels.data();
+
+    std::cout << "Calling glfwCreateCursor with " << width << "x" << height << " image, hotspot: (" << xhot << "," << yhot << ")" << std::endl;
+    GLFWcursor* cursor = glfwCreateCursor(&GLFWimage, xhot, yhot);
+    if (cursor == nullptr)
+    {
+        DWORD error = GetLastError();
+        std::cerr << "Failed to create GLFW cursor from: " << imagePath.string() << " - Windows error code: " << error << '\n';
+        return nullptr;
+    }
+
+    std::cout << "Successfully created cursor from: " << imagePath.string() << " (" << width << "x" << height << ")" << std::endl;
+    return cursor;
+}

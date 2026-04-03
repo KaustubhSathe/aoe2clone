@@ -34,6 +34,17 @@ void processInput(GLFWwindow* window)
     {
         cameraX += velocity;
     }
+
+    // Garrison cursor mode is now handled by key_callback
+    // This only handles Escape key cancellation in case key callback didn't fire
+    if (gAppState != nullptr)
+    {
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS && gAppState->cursorMode == CursorMode::Garrison)
+        {
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
+        }
+    }
 }
 
 // GLFW callback fired when the mouse scroll wheel moves.
@@ -97,6 +108,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS)
     {
+        // Exit garrison cursor mode on left click (even if not on anything)
+        if (gAppState->cursorMode == CursorMode::Garrison)
+        {
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
+            return;
+        }
+
         gAppState->selection.dragging = true;
         gAppState->selection.moved = false;
         gAppState->selection.startScreen = gAppState->cursorScreen;
@@ -105,6 +124,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE)
     {
+        // Exit garrison cursor mode on left click release
+        if (gAppState->cursorMode == CursorMode::Garrison)
+        {
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
+            return;
+        }
+
         if (gAppState->selection.dragging && gAppState->selection.moved)
         {
             clear_selection(*gAppState);
@@ -176,8 +203,92 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
     if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS)
     {
+        // Handle garrison cursor mode
+        if (gAppState->cursorMode == CursorMode::Garrison)
+        {
+            // Check if clicking on a town center
+            int garrisonTCIndex = -1;
+            for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+            {
+                const TownCenter& tc = gAppState->townCenters[i];
+                const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
+                if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
+                {
+                    garrisonTCIndex = i;
+                    break;
+                }
+            }
+
+            if (garrisonTCIndex >= 0)
+            {
+                // Find any selected villagers
+                bool anySelected = false;
+                for (const Villager& v : gAppState->villagers)
+                {
+                    if (v.selected && !v.isGarrisoned) anySelected = true;
+                }
+
+                if (anySelected)
+                {
+                    const TownCenter& targetTc = gAppState->townCenters[garrisonTCIndex];
+                    for (Villager& v : gAppState->villagers)
+                    {
+                        if (!v.selected || v.isGarrisoned) continue;
+
+                        float bestDist = 1e9f;
+                        glm::vec2 bestTarget = targetTc.position;
+
+                        for (int x = -1; x <= 4; ++x) {
+                            for (int y = -1; y <= 4; ++y) {
+                                if (x >= 0 && x <= 3 && y >= 0 && y <= 3) continue;
+                                glm::ivec2 p(targetTc.tile.x + x, targetTc.tile.y + y);
+                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p)) {
+                                    float dist = glm::length(tile_to_world(p) - v.position);
+                                    if (dist < bestDist) {
+                                        bestDist = dist;
+                                        bestTarget = tile_to_world(p);
+                                    }
+                                }
+                            }
+                        }
+
+                        std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
+                        v.waypointQueue.clear();
+                        v.isMovingToGarrison = true;
+                        v.targetTcIndex = garrisonTCIndex;
+                        if (path.size() > 1) {
+                            v.targetPosition = path[1];
+                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                            v.moving = true;
+                            for (size_t i = 2; i < path.size(); ++i) {
+                                v.waypointQueue.push_back(path[i]);
+                            }
+                        } else if (path.size() == 1 && glm::length(path[0] - v.position) > 1.0f) {
+                            v.targetPosition = path[0];
+                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                            v.moving = true;
+                        } else {
+                            if (targetTc.garrisonCount < targetTc.maxGarrison) {
+                                gAppState->townCenters[garrisonTCIndex].garrisonCount++;
+                                v.isGarrisoned = true;
+                                v.garrisonTcIndex = garrisonTCIndex;
+                                v.selected = false;
+                                v.moving = false;
+                                v.isMovingToGarrison = false;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Exit garrison cursor mode
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
+            return;
+        }
+
         bool anySelected = false;
-        for (const Villager& v : gAppState->villagers) 
+        for (const Villager& v : gAppState->villagers)
         {
             if (v.selected && !v.isGarrisoned) anySelected = true;
         }
@@ -218,10 +329,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 for (Villager& v : gAppState->villagers)
                 {
                     if (!v.selected || v.isGarrisoned) continue;
-                    
+
                     float bestDist = 1e9f;
                     glm::vec2 bestTarget = targetTc.position;
-                    
+
                     for (int x = -1; x <= 4; ++x) {
                         for (int y = -1; y <= 4; ++y) {
                             if (x >= 0 && x <= 3 && y >= 0 && y <= 3) continue;
@@ -375,6 +486,55 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     selectedTC->gatherPoint = tile_to_world(*targetTile);
                 }
             }
+        }
+    }
+}
+
+// GLFW callback fired on key press and release.
+// Handles T key for garrison cursor mode toggle.
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (gAppState == nullptr)
+    {
+        return;
+    }
+
+    if (ImGui::GetCurrentContext() != nullptr && ImGui::GetIO().WantCaptureKeyboard)
+    {
+        return;
+    }
+
+    if (key == GLFW_KEY_T && action == GLFW_PRESS)
+    {
+        std::cout << "T key callback fired! Current mode: " << (gAppState->cursorMode == CursorMode::Garrison ? "Garrison" : "Normal") << std::endl;
+        if (gAppState->cursorMode == CursorMode::Garrison)
+        {
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
+            std::cout << "Cursor set to nullptr (Normal mode)" << std::endl;
+        }
+        else
+        {
+            gAppState->cursorMode = CursorMode::Garrison;
+            if (gGarrisonCursor != nullptr)
+            {
+                glfwSetCursor(window, gGarrisonCursor);
+                std::cout << "Cursor set to garrison cursor" << std::endl;
+            }
+            else
+            {
+                std::cout << "ERROR: gGarrisonCursor is null!" << std::endl;
+            }
+        }
+    }
+
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    {
+        if (gAppState->cursorMode == CursorMode::Garrison)
+        {
+            std::cout << "Escape - exiting garrison mode" << std::endl;
+            gAppState->cursorMode = CursorMode::Normal;
+            glfwSetCursor(window, nullptr);
         }
     }
 }

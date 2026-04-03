@@ -84,6 +84,12 @@ struct FPSState
     static constexpr float UPDATE_INTERVAL = 0.25f;
 };
 
+enum class CursorMode
+{
+    Normal,
+    Garrison
+};
+
 struct AppState
 {
     std::vector<Villager> villagers;
@@ -110,5 +116,6 @@ struct AppState
     float inGameTime = 0.0f;
     int currentAge = 1; // 1 = Dark Age
     FPSState fps;
+    CursorMode cursorMode = CursorMode::Normal;
 };
 

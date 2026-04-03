@@ -1,6 +1,8 @@
 #pragma once
 
 struct AppState;
+struct GLFWwindow;
+struct GLFWcursor;
 
 extern unsigned int SCR_WIDTH;
 extern unsigned int SCR_HEIGHT;
@@ -14,3 +16,4 @@ extern float deltaTime;
 extern float lastFrame;
 
 extern AppState* gAppState;
+extern GLFWcursor* gGarrisonCursor;
