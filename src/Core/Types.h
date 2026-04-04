@@ -59,6 +59,7 @@ struct House
     int hp = 500;
     int maxHp = 500;
     bool isUnderConstruction = true;
+    bool isGhostFoundation = true; // Ghost doesn't block tiles until villager arrives
     float buildProgress = 0.0f;
     int assignedVillagerIndex = -1;
 };
@@ -124,12 +125,21 @@ struct BuildTask
     glm::ivec2 targetTile;
 };
 
+struct PendingBuildInfo
+{
+    int villagerIndex = -1;
+    int buildingIndex = -1;
+    glm::ivec2 targetTile;
+};
+
 struct AppState
 {
     std::vector<Villager> villagers;
     std::vector<PineTree> pineTrees;
     std::vector<TownCenter> townCenters;
     std::vector<House> houses;
+
+    PendingBuildInfo pendingBuildInfo;
 
     glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f);
     glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f);

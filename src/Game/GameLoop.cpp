@@ -153,6 +153,87 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
         }
 
         // ---------------------------------------------------------------------
+        // Pending Build Handler - complete build setup when villagers have evacuated
+        // ---------------------------------------------------------------------
+        if (appState.pendingBuildInfo.villagerIndex >= 0 && appState.pendingBuildInfo.buildingIndex >= 0)
+        {
+            const int vIndex = appState.pendingBuildInfo.villagerIndex;
+            const int bIndex = appState.pendingBuildInfo.buildingIndex;
+            const glm::ivec2& tile = appState.pendingBuildInfo.targetTile;
+
+            if (vIndex < static_cast<int>(appState.villagers.size()) &&
+                bIndex < static_cast<int>(appState.houses.size()) &&
+                !appState.villagers[vIndex].moving)
+            {
+                Villager& v = appState.villagers[vIndex];
+                House& house = appState.houses[bIndex];
+
+                // Convert ghost to real foundation - now it blocks tiles
+                house.isGhostFoundation = false;
+                rebuild_blocked_tiles(engine, appState);
+
+                // Villager has arrived at evacuation tile - find path to build target
+                float bestDist = 1e9f;
+                glm::vec2 buildTarget = house.position;
+
+                for (int dx = -1; dx <= 2; ++dx)
+                {
+                    for (int dy = -1; dy <= 2; ++dy)
+                    {
+                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                        glm::ivec2 p(tile.x + dx, tile.y + dy);
+                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
+                        {
+                            float dist = glm::length(tile_to_world(p) - v.position);
+                            if (dist < bestDist)
+                            {
+                                bestDist = dist;
+                                buildTarget = tile_to_world(p);
+                            }
+                        }
+                    }
+                }
+
+                std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
+                v.waypointQueue.clear();
+                if (path.size() > 1)
+                {
+                    v.targetPosition = path[1];
+                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                    v.moving = true;
+                    for (size_t i = 2; i < path.size(); ++i)
+                    {
+                        v.waypointQueue.push_back(path[i]);
+                    }
+                }
+                else if (path.size() == 1)
+                {
+                    v.targetPosition = path[0];
+                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                    v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                }
+
+                // If villager is already at the build target, start building immediately
+                if (glm::length(buildTarget - v.position) < 1.0f)
+                {
+                    v.isBuilding = true;
+                    v.builderFrameIndex = 0;
+                    v.builderAnimTimer = 0.0f;
+                }
+
+                BuildTask task;
+                task.villagerIndex = vIndex;
+                task.buildingIndex = bIndex;
+                task.targetTile = tile;
+                appState.buildTasks.push_back(task);
+
+                // Clear pending build
+                appState.pendingBuildInfo.villagerIndex = -1;
+                appState.pendingBuildInfo.buildingIndex = -1;
+            }
+        }
+
+        // ---------------------------------------------------------------------
         // Villager Collision Resolution (Soft separation)
         // ---------------------------------------------------------------------
         constexpr float VILLAGER_RADIUS = 12.0f;

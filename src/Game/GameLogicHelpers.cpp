@@ -123,6 +123,7 @@ bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
     }
     for (const House& house : appState.houses)
     {
+        if (house.isGhostFoundation) continue; // Ghost foundations don't block
         if (tile.x >= house.tile.x && tile.x < house.tile.x + 2 &&
             tile.y >= house.tile.y && tile.y < house.tile.y + 2)
         {
