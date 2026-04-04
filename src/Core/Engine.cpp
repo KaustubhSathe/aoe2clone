@@ -222,6 +222,12 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
                         if (villagerIndex >= 0)
                         {
+                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+                            if (!shiftHeld)
+                            {
+                                gAppState->villagers[villagerIndex].operationQueue.clear();
+                            }
+
                             // Check if any villager is standing on the building tiles
                             std::vector<int> villagersOnBuildingTiles;
                             for (int i = 0; i < static_cast<int>(gAppState->villagers.size()); ++i)
@@ -269,29 +275,50 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 }
 
                                 std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
-                                const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
-                                if (!shiftHeld)
-                                {
-                                    v.waypointQueue.clear();
-                                }
+                                
+                                // Evacuation must be pushed to the FRONT so the villager moves out of the way immediately.
                                 if (path.size() > 1)
                                 {
-                                    v.targetPosition = path[1];
-                                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                                    v.moving = true;
-                                    for (size_t i = 2; i < path.size(); ++i)
+                                    for (size_t i = path.size(); i-- > 1; )
                                     {
-                                        v.waypointQueue.push_back(path[i]);
+                                        QueuedOperation op;
+                                        op.type = OperationType::WALK;
+                                        op.targetPosition = path[i];
+                                        v.operationQueue.push_front(op);
                                     }
                                 }
                                 else if (path.size() == 1)
                                 {
-                                    v.targetPosition = path[0];
-                                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                                    v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                                    QueuedOperation op;
+                                    op.type = OperationType::WALK;
+                                    op.targetPosition = path[0];
+                                    v.operationQueue.push_front(op);
                                 }
                             }
 
+                            Villager& v = gAppState->villagers[villagerIndex];
+
+                            const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
+
+                            // If shift is held, queue this build - don't create house yet
+                            if (shiftHeldForQueue)
+                            {
+                                // Queue the build for after current one finishes
+                                PendingBuildInfo queued;
+                                queued.villagerIndex = villagerIndex;
+                                queued.buildingType = BuildableBuilding::House;
+                                queued.targetTile = tile;
+                                gAppState->pendingBuildQueue.push_back(queued);
+
+                                gAppState->selectedBuilding = BuildableBuilding::None;
+                                gAppState->cursorMode = CursorMode::Normal;
+                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                                gAppState->selection.dragging = false;
+                                gAppState->selection.moved = false;
+                                return;
+                            }
+
+                            // Not queueing - create house and start building now
                             gAppState->wood -= HOUSE_COST_WOOD;
 
                             House house;
@@ -306,82 +333,36 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             gAppState->houses.push_back(house);
                             // DON'T rebuild blocked tiles yet - ghost doesn't block
 
-                            Villager& v = gAppState->villagers[villagerIndex];
-
-                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
-
-                            // If shift is held and villager already has a build in progress/pending, queue this build
-                            if (shiftHeld && (v.isBuilding || !gAppState->pendingBuildQueue.empty()))
+                            // If villager is already building (without shift), abort old build and start new one
+                            if (v.isBuilding)
                             {
-                                // Queue the build for after current one finishes
-                                // DO NOT set v.buildingTargetIndex - keep it pointing to current building
-                                PendingBuildInfo queued;
-                                queued.villagerIndex = villagerIndex;
-                                queued.buildingIndex = buildingIndex;
-                                queued.targetTile = tile;
-                                gAppState->pendingBuildQueue.push_back(queued);
-
-                                // Don't set up evacuation path or pendingBuildInfo - just return
-                                gAppState->selectedBuilding = BuildableBuilding::None;
-                                gAppState->cursorMode = CursorMode::Normal;
-                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
-                                gAppState->selection.dragging = false;
-                                gAppState->selection.moved = false;
-                                return;
-                            }
-
-                            // Normal case: villager is free, set up as current build
-                            v.buildingTargetIndex = buildingIndex;
-
-                            // Normal case: set up pending build for when villager arrives
-                            PendingBuildInfo pending;
-                            pending.villagerIndex = villagerIndex;
-                            pending.buildingIndex = buildingIndex;
-                            pending.targetTile = tile;
-                            gAppState->pendingBuildQueue.push_back(pending);
-
-                            // Find path for villager to move to an adjacent tile (evacuation)
-                            float bestDist = 1e9f;
-                            glm::vec2 moveTarget = v.position;
-
-                            for (int dx = -1; dx <= 2; ++dx)
-                            {
-                                for (int dy = -1; dy <= 2; ++dy)
+                                // Abort the current building
+                                int oldBuildingIndex = v.buildingTargetIndex;
+                                if (oldBuildingIndex >= 0 && oldBuildingIndex < static_cast<int>(gAppState->houses.size()))
                                 {
-                                    if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
-                                    glm::ivec2 p(tile.x + dx, tile.y + dy);
-                                    if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
-                                    {
-                                        float dist = glm::length(tile_to_world(p) - v.position);
-                                        if (dist < bestDist)
-                                        {
-                                            bestDist = dist;
-                                            moveTarget = tile_to_world(p);
-                                        }
-                                    }
+                                    House& oldHouse = gAppState->houses[oldBuildingIndex];
+                                    oldHouse.isUnderConstruction = true;
+                                    oldHouse.isGhostFoundation = true;
+                                    oldHouse.buildProgress = 0.0f;
+                                    oldHouse.assignedVillagerIndex = -1;
                                 }
+                                v.isBuilding = false;
+                                v.buildingTargetIndex = -1;
+
+                                // Clear any pending builds for this villager (we're overriding with new build)
+                                gAppState->pendingBuildQueue.erase(
+                                    std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
+                                        [villagerIndex](const PendingBuildInfo& p) { return p.villagerIndex == villagerIndex; }),
+                                    gAppState->pendingBuildQueue.end());
                             }
 
-                            std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
-                            v.waypointQueue.clear();
-                            if (path.size() > 1)
-                            {
-                                v.targetPosition = path[1];
-                                v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                                v.moving = true;
-                                for (size_t i = 2; i < path.size(); ++i)
-                                {
-                                    v.waypointQueue.push_back(path[i]);
-                                }
-                            }
-                            else if (path.size() == 1)
-                            {
-                                v.targetPosition = path[0];
-                                v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                                v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
-                            }
-
-                            // Don't create BuildTask yet - it will be created when villager arrives and ghost becomes solid
+                            // Add BUILD operation to the queue
+                            QueuedOperation buildOp;
+                            buildOp.type = OperationType::BUILD;
+                            buildOp.buildingIndex = buildingIndex;
+                            buildOp.targetTile = tile;
+                            buildOp.targetPosition = glm::vec2(0.0f); // Will be set when processing
+                            v.operationQueue.push_back(buildOp);
 
                             gAppState->selectedBuilding = BuildableBuilding::None;
                             gAppState->cursorMode = CursorMode::Normal;
@@ -541,7 +522,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         }
 
                         std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
-                        v.waypointQueue.clear();
+                        v.operationQueue.clear();
                         v.isMovingToGarrison = true;
                         v.targetTcIndex = garrisonTCIndex;
                         if (path.size() > 1) {
@@ -549,7 +530,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             v.facingDirection = glm::normalize(v.targetPosition - v.position);
                             v.moving = true;
                             for (size_t i = 2; i < path.size(); ++i) {
-                                v.waypointQueue.push_back(path[i]);
+                                QueuedOperation op;
+                                op.type = OperationType::WALK;
+                                op.targetPosition = path[i];
+                                v.operationQueue.push_back(op);
                             }
                         } else if (path.size() == 1 && glm::length(path[0] - v.position) > 1.0f) {
                             v.targetPosition = path[0];
@@ -636,7 +620,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     }
 
                     std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
-                    v.waypointQueue.clear();
+                    v.operationQueue.clear();
                     v.isMovingToGarrison = true;
                     v.targetTcIndex = garrisonTCIndex;
                     if (path.size() > 1) {
@@ -644,7 +628,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
                         v.moving = true;
                         for (size_t i = 2; i < path.size(); ++i) {
-                            v.waypointQueue.push_back(path[i]);
+                            QueuedOperation op;
+                            op.type = OperationType::WALK;
+                            op.targetPosition = path[i];
+                            v.operationQueue.push_back(op);
                         }
                     } else if (path.size() == 1 && glm::length(path[0] - v.position) > 1.0f) {
                         v.targetPosition = path[0];
@@ -676,17 +663,35 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         {
                             if (v.selected && !v.isGarrisoned)
                             {
-                                // Check if villager is already building something else
-                                if (v.isBuilding && v.buildingTargetIndex >= 0)
+                                // Check if villager is already building something else or has queued operations
+                                bool villagerBusy = v.isBuilding || !v.operationQueue.empty();
+                                if (villagerBusy)
                                 {
-                                    // Cancel previous building
-                                    if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                                    // If shift is held, queue this build instead of overriding
+                                    if ((mods & GLFW_MOD_SHIFT) != 0)
                                     {
-                                        gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                                        // Queue the build
+                                        PendingBuildInfo queued;
+                                        queued.villagerIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
+                                        queued.buildingIndex = static_cast<int>(i);
+                                        queued.targetTile = house.tile;
+                                        gAppState->pendingBuildQueue.push_back(queued);
+                                        continue; // Don't override, just queue and continue
                                     }
+
+                                    // Without shift, cancel previous building and start new one
+                                    if (v.isBuilding && v.buildingTargetIndex >= 0)
+                                    {
+                                        if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                                        {
+                                            gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                                        }
+                                    }
+                                    // Clear queued operations since we're overriding
+                                    v.operationQueue.clear();
                                 }
 
-                                // Set up building task
+                                // Set up building task (only when not shift-queueing, since we continued above)
                                 v.buildingTargetIndex = static_cast<int>(i);
                                 house.assignedVillagerIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
 
@@ -713,7 +718,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
                                 // If villager is not already at build target, set up movement
                                 const float distToTarget = glm::length(buildTarget - v.position);
-                                v.waypointQueue.clear();
+                                v.operationQueue.clear();
                                 if (distToTarget > 1.0f)
                                 {
                                     std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
@@ -725,7 +730,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                         v.isBuilding = false; // Will start building when arrived
                                         for (size_t j = 2; j < path.size(); ++j)
                                         {
-                                            v.waypointQueue.push_back(path[j]);
+                                            QueuedOperation op;
+                                            op.type = OperationType::WALK;
+                                            op.targetPosition = path[j];
+                                            v.operationQueue.push_back(op);
                                         }
                                     }
                                     else if (path.size() == 1)
@@ -769,7 +777,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     if (v.selected)
                     {
                         v.targetPosition = v.position;
-                        v.waypointQueue.clear();
+                        v.operationQueue.clear();
                         v.moving = false;
                     }
                 }
@@ -790,44 +798,96 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             {
                 if (!v.selected) continue;
 
-                // Abort building if villager is given a new move command
-                if (v.buildingTargetIndex >= 0)
+                // Abort current tasks if shift is NOT held
+                if (!shiftHeld)
                 {
-                    // Clear the building assignment
-                    if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                    if (v.buildingTargetIndex >= 0)
                     {
-                        gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                        // Clear the building assignment
+                        if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                        {
+                            gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                        }
+                        v.isBuilding = false;
+                        v.buildingTargetIndex = -1;
                     }
-                    v.isBuilding = false;
-                    v.buildingTargetIndex = -1;
+
+                    v.operationQueue.clear();
+
+                    int vIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
+                    gAppState->pendingBuildQueue.erase(
+                        std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
+                            [vIndex](const PendingBuildInfo& p) { return p.villagerIndex == vIndex; }),
+                        gAppState->pendingBuildQueue.end());
                 }
 
-                glm::vec2 finalTarget = (destIndex < groupDestinations.size()) 
-                    ? tile_to_world(groupDestinations[destIndex++]) 
+                glm::vec2 finalTarget = (destIndex < groupDestinations.size())
+                    ? tile_to_world(groupDestinations[destIndex++])
                     : tile_to_world(*targetTile);
-                
+
                 glm::vec2 startPos = v.position;
-                if (shiftHeld && v.moving)
+                if (shiftHeld)
                 {
-                    startPos = v.waypointQueue.empty() ? v.targetPosition : v.waypointQueue.back();
+                    if (!v.operationQueue.empty())
+                    {
+                        bool foundPos = false;
+                        for (auto it = v.operationQueue.rbegin(); it != v.operationQueue.rend(); ++it)
+                        {
+                            if (it->type == OperationType::WALK)
+                            {
+                                startPos = it->targetPosition;
+                                foundPos = true;
+                                break;
+                            }
+                            else if (it->type == OperationType::BUILD)
+                            {
+                                startPos = tile_to_world(it->targetTile);
+                                foundPos = true;
+                                break;
+                            }
+                        }
+                        if (!foundPos) startPos = v.targetPosition;
+                    }
+                    else if (!gAppState->pendingBuildQueue.empty())
+                    {
+                        int vIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
+                        bool foundPending = false;
+                        for (auto it = gAppState->pendingBuildQueue.rbegin(); it != gAppState->pendingBuildQueue.rend(); ++it)
+                        {
+                            if (it->villagerIndex == vIndex)
+                            {
+                                startPos = tile_to_world(it->targetTile);
+                                foundPending = true;
+                                break;
+                            }
+                        }
+                        if (!foundPending && (v.moving || v.isBuilding)) startPos = v.targetPosition;
+                    }
+                    else if (v.moving || v.isBuilding)
+                    {
+                        startPos = v.targetPosition;
+                    }
                 }
 
                 std::vector<glm::vec2> path = find_path(*gAppState, startPos, finalTarget);
 
-                if (shiftHeld && v.moving)
+                if (shiftHeld)
                 {
                     if (!path.empty())
                     {
                         // Skip the first node as it matches startPos exactly
                         for (size_t i = 1; i < path.size(); ++i)
                         {
-                            v.waypointQueue.push_back(path[i]);
+                            QueuedOperation op;
+                            op.type = OperationType::WALK;
+                            op.targetPosition = path[i];
+                            v.operationQueue.push_back(op);
                         }
                     }
                 }
                 else
                 {
-                    v.waypointQueue.clear();
+                    // v.operationQueue is already cleared above
                     if (path.size() > 1) // First node is startPos, so path must have >= 2 to move
                     {
                         v.targetPosition = path[1];
@@ -835,7 +895,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         v.moving = true;
                         for (size_t i = 2; i < path.size(); ++i)
                         {
-                            v.waypointQueue.push_back(path[i]);
+                            QueuedOperation op;
+                            op.type = OperationType::WALK;
+                            op.targetPosition = path[i];
+                            v.operationQueue.push_back(op);
                         }
                     }
                     else if (path.size() == 1 && glm::length(path[0] - v.position) > 1.0f)
@@ -989,7 +1052,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
         {
             if (v.selected)
             {
-                v.waypointQueue.clear();
+                v.operationQueue.clear();
                 v.moving = false;
                 v.targetPosition = v.position;
             }

@@ -17,6 +17,85 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
 
         for (Villager& v : appState.villagers)
         {
+            // If villager is idle and has a queued operation, process it immediately
+            if (!v.moving && !v.isBuilding && !v.operationQueue.empty())
+            {
+                QueuedOperation& nextOp = v.operationQueue.front();
+                if (nextOp.type == OperationType::WALK)
+                {
+                    v.operationQueue.pop_front();
+                    const glm::vec2 toNext = nextOp.targetPosition - v.position;
+                    if (glm::length(toNext) > 1.0f)
+                    {
+                        v.targetPosition = nextOp.targetPosition;
+                        v.facingDirection = glm::normalize(toNext);
+                        v.moving = true;
+                    }
+                }
+                else if (nextOp.type == OperationType::BUILD)
+                {
+                    v.operationQueue.pop_front();
+                    const int bIndex = nextOp.buildingIndex;
+                    const glm::ivec2& tile = nextOp.targetTile;
+                    if (bIndex >= 0 && bIndex < static_cast<int>(appState.houses.size()))
+                    {
+                        House& house = appState.houses[bIndex];
+                        house.isGhostFoundation = false;
+                        rebuild_blocked_tiles(engine, appState);
+
+                        float bestDist = 1e9f;
+                        glm::vec2 buildTarget = house.position;
+                        for (int dx = -1; dx <= 2; ++dx)
+                        {
+                            for (int dy = -1; dy <= 2; ++dy)
+                            {
+                                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                glm::ivec2 p(tile.x + dx, tile.y + dy);
+                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
+                                {
+                                    float dist = glm::length(tile_to_world(p) - v.position);
+                                    if (dist < bestDist)
+                                    {
+                                        bestDist = dist;
+                                        buildTarget = tile_to_world(p);
+                                    }
+                                }
+                            }
+                        }
+
+                        v.buildingTargetIndex = bIndex;
+
+                        std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
+                        if (path.size() > 1)
+                        {
+                            v.targetPosition = path[1];
+                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                            v.moving = true;
+                            for (size_t j = path.size(); j-- > 2; )
+                            {
+                                QueuedOperation wp;
+                                wp.type = OperationType::WALK;
+                                wp.targetPosition = path[j];
+                                v.operationQueue.push_front(wp);
+                            }
+                        }
+                        else if (path.size() == 1)
+                        {
+                            v.targetPosition = path[0];
+                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                            v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                        }
+
+                        if (glm::length(buildTarget - v.position) < 1.0f)
+                        {
+                            v.isBuilding = true;
+                            v.builderFrameIndex = 0;
+                            v.builderAnimTimer = 0.0f;
+                        }
+                    }
+                }
+            }
+
             if (v.moving)
             {
                 v.walkAnimTimer += deltaTime;
@@ -39,21 +118,49 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     }
                     v.position = v.targetPosition;
 
-                    // Pop the next queued waypoint and keep moving, or stop.
-                    if (!v.waypointQueue.empty())
+                    // First, check if we've arrived at our assigned build target
+                    bool arrivedAtBuilding = false;
+                    if (v.buildingTargetIndex >= 0 && v.buildingTargetIndex < static_cast<int>(appState.houses.size()))
                     {
-                        const glm::vec2 nextWP = v.waypointQueue.front();
-                        v.waypointQueue.pop_front();
-                        const glm::vec2 toNext = nextWP - v.position;
-                        if (glm::length(toNext) > 1.0f)
+                        House& house = appState.houses[v.buildingTargetIndex];
+                        if (glm::length(house.position - v.position) <= 1.5f)
                         {
-                            v.targetPosition = nextWP;
-                            v.facingDirection = glm::normalize(toNext);
-                            v.moving = true;
+                            arrivedAtBuilding = true;
+                        }
+                    }
+
+                    // Pop the next queued operation and keep moving, or stop.
+                    if (arrivedAtBuilding)
+                    {
+                        // Stop moving so the construction can start; preserve the queue for later
+                        v.moving = false;
+                    }
+                    else if (!v.operationQueue.empty())
+                    {
+                        if (v.operationQueue.front().type == OperationType::BUILD)
+                        {
+                            // Do not pop high-level architecture tasks while moving
+                            v.moving = false;
                         }
                         else
                         {
-                            v.moving = false;
+                            QueuedOperation nextOp = v.operationQueue.front();
+                            v.operationQueue.pop_front();
+
+                            if (nextOp.type == OperationType::WALK)
+                            {
+                                const glm::vec2 toNext = nextOp.targetPosition - v.position;
+                                if (glm::length(toNext) > 1.0f)
+                                {
+                                    v.targetPosition = nextOp.targetPosition;
+                                    v.facingDirection = glm::normalize(toNext);
+                                    v.moving = true;
+                                }
+                                else
+                                {
+                                    v.moving = false;
+                                }
+                            }
                         }
                     }
                     else
@@ -80,18 +187,21 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     const std::optional<glm::ivec2> nextTile = world_to_tile(nextPosition);
                     if (nextTile.has_value() && is_tile_blocked(appState, *nextTile))
                     {
-                        // Blocked dynamically! Try to find a new path to the final destination
-                        glm::vec2 ultimateDest = v.waypointQueue.empty() ? v.targetPosition : v.waypointQueue.back();
-                        std::vector<glm::vec2> newPath = find_path(appState, v.position, ultimateDest);
-                        v.waypointQueue.clear();
-                        
+                        // Blocked dynamically! Try to find a detour to our immediate logical waypoint
+                        // We do NOT clear the operation queue so we preserve shift-queued tasks
+                        glm::vec2 currentDest = v.targetPosition;
+                        std::vector<glm::vec2> newPath = find_path(appState, v.position, currentDest);
+
                         if (newPath.size() > 1)
                         {
                             v.targetPosition = newPath[1];
                             v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                            for (size_t i = 2; i < newPath.size(); ++i)
+                            for (size_t i = newPath.size(); i-- > 2; )
                             {
-                                v.waypointQueue.push_back(newPath[i]);
+                                QueuedOperation op;
+                                op.type = OperationType::WALK;
+                                op.targetPosition = newPath[i];
+                                v.operationQueue.push_front(op);
                             }
                         }
                         else
@@ -120,6 +230,17 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 v.isBuilding = true;
                 v.builderFrameIndex = 0;
                 v.builderAnimTimer = 0.0f;
+
+                // Convert ghost foundation to real when villager starts building
+                if (v.buildingTargetIndex >= 0 && v.buildingTargetIndex < static_cast<int>(appState.houses.size()))
+                {
+                    House& house = appState.houses[v.buildingTargetIndex];
+                    if (house.isGhostFoundation)
+                    {
+                        house.isGhostFoundation = false;
+                        rebuild_blocked_tiles(engine, appState);
+                    }
+                }
             }
 
             // Handle building task progress
@@ -165,29 +286,80 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 const int bIndex = pending.buildingIndex;
                 const glm::ivec2& tile = pending.targetTile;
 
+                // Check if villager exists, building exists, is not moving, and not already building
+                bool villagerExists = vIndex >= 0 && vIndex < static_cast<int>(appState.villagers.size());
+                bool buildingExists = bIndex >= 0 && bIndex < static_cast<int>(appState.houses.size());
+
+                // Skip if villager doesn't exist
+                if (!villagerExists)
+                {
+                    std::cerr << "[PENDING] skipping invalid villager " << vIndex << std::endl;
+                    appState.pendingBuildQueue.erase(appState.pendingBuildQueue.begin() + i);
+                    continue;
+                }
+
                 std::cerr << "[PENDING] checking villager " << vIndex << " building " << bIndex
                           << " moving=" << appState.villagers[vIndex].moving
                           << " isBuilding=" << appState.villagers[vIndex].isBuilding << std::endl;
 
-                // Check if villager exists, building exists, is not moving, and not already building
-                bool villagerExists = vIndex >= 0 && vIndex < static_cast<int>(appState.villagers.size());
-                bool buildingExists = bIndex >= 0 && bIndex < static_cast<int>(appState.houses.size());
-                bool villagerIdle = villagerExists && appState.villagers[vIndex].moving == false && appState.villagers[vIndex].isBuilding == false;
+                bool villagerIdle = appState.villagers[vIndex].moving == false && appState.villagers[vIndex].isBuilding == false;
                 bool buildingIsGhost = buildingExists && appState.houses[bIndex].isGhostFoundation;
-                // Also process if this pending entry is for the building the villager is currently heading to
+                // Also process if this is the first pending entry for this villager (respect queue order)
+                bool isFirstPendingForVillager = false;
+                if (villagerExists)
+                {
+                    for (size_t j = 0; j < appState.pendingBuildQueue.size(); ++j)
+                    {
+                        if (appState.pendingBuildQueue[j].villagerIndex == vIndex)
+                        {
+                            isFirstPendingForVillager = (j == i);
+                            break;
+                        }
+                    }
+                }
+                // Only process if villager is idle AND this is first pending (queue order), OR if matches current target
                 bool pendingMatchesTarget = villagerExists && appState.villagers[vIndex].buildingTargetIndex == bIndex;
+                bool needsNewBuilding = !buildingExists && pending.buildingType != BuildableBuilding::None;
 
-                if (villagerExists && buildingExists && (villagerIdle || pendingMatchesTarget) && buildingIsGhost)
+                if (villagerExists && (buildingExists || needsNewBuilding) && ((villagerIdle && isFirstPendingForVillager) || pendingMatchesTarget) && (buildingIsGhost || needsNewBuilding))
                 {
                     Villager& v = appState.villagers[vIndex];
-                    House& house = appState.houses[bIndex];
+                    int actualBIndex = bIndex;
 
-                    // Convert ghost to real foundation - now it blocks tiles
-                    house.isGhostFoundation = false;
-                    rebuild_blocked_tiles(engine, appState);
+                    // If building doesn't exist yet (queued build), create it now as ghost
+                    if (needsNewBuilding)
+                    {
+                        // Deduct resources when actually creating the building
+                        if (pending.buildingType == BuildableBuilding::House)
+                        {
+                            appState.wood -= HOUSE_COST_WOOD;
+                        }
+
+                        House house;
+                        house.tile = tile;
+                        house.position = tile_to_world(tile);
+                        house.hp = 500;
+                        house.maxHp = 500;
+                        house.isUnderConstruction = true;
+                        house.isGhostFoundation = true;
+                        house.assignedVillagerIndex = vIndex;
+                        actualBIndex = static_cast<int>(appState.houses.size());
+                        appState.houses.push_back(house);
+                        // Don't rebuild blocked tiles yet - ghost doesn't block
+                    }
+
+                    House& house = appState.houses[actualBIndex];
+
+                    // Only convert ghost to real if this is NOT a new building (new buildings stay ghost until villager starts)
+                    if (!needsNewBuilding)
+                    {
+                        // Convert ghost to real foundation - now it blocks tiles
+                        house.isGhostFoundation = false;
+                        rebuild_blocked_tiles(engine, appState);
+                    }
 
                     // Set buildingTargetIndex so the villager knows which building to build when they arrive
-                    v.buildingTargetIndex = bIndex;
+                    v.buildingTargetIndex = actualBIndex;
 
                     // Villager has arrived at evacuation tile - find path to build target
                     float bestDist = 1e9f;
@@ -212,15 +384,18 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     }
 
                     std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
-                    v.waypointQueue.clear();
+                    
                     if (path.size() > 1)
                     {
                         v.targetPosition = path[1];
                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
                         v.moving = true;
-                        for (size_t j = 2; j < path.size(); ++j)
+                        for (size_t j = path.size(); j-- > 2; )
                         {
-                            v.waypointQueue.push_back(path[j]);
+                            QueuedOperation op;
+                            op.type = OperationType::WALK;
+                            op.targetPosition = path[j];
+                            v.operationQueue.push_front(op);
                         }
                     }
                     else if (path.size() == 1)
@@ -240,7 +415,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
 
                     BuildTask task;
                     task.villagerIndex = vIndex;
-                    task.buildingIndex = bIndex;
+                    task.buildingIndex = actualBIndex;
                     task.targetTile = tile;
                     appState.buildTasks.push_back(task);
 
@@ -356,7 +531,10 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                                 v.moving = true;
                                 for (size_t h = 2; h < path.size(); ++h)
                                 {
-                                    v.waypointQueue.push_back(path[h]);
+                                    QueuedOperation op;
+                                    op.type = OperationType::WALK;
+                                    op.targetPosition = path[h];
+                                    v.operationQueue.push_back(op);
                                 }
                             }
                             else if (path.size() == 1)
@@ -894,11 +1072,14 @@ void RenderScene(EngineState& engine, AppState& appState)
             if (v.selected && v.moving)
             {
                 std::vector<glm::vec2> allWPs;
-                allWPs.reserve(1 + v.waypointQueue.size());
+                allWPs.reserve(1 + v.operationQueue.size());
                 allWPs.push_back(v.targetPosition);
-                for (const glm::vec2& wp : v.waypointQueue)
+                for (const QueuedOperation& op : v.operationQueue)
                 {
-                    allWPs.push_back(wp);
+                    if (op.type == OperationType::WALK)
+                    {
+                        allWPs.push_back(op.targetPosition);
+                    }
                 }
 
                 static unsigned int wpVAO = 0;
@@ -1302,7 +1483,7 @@ void RenderUI(EngineState& engine, AppState& appState)
                         {
                             if (v.selected)
                             {
-                                v.waypointQueue.clear();
+                                v.operationQueue.clear();
                                 v.moving = false;
                                 v.targetPosition = v.position;
                             }
@@ -1373,7 +1554,10 @@ void RenderUI(EngineState& engine, AppState& appState)
                                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
                                         v.moving = true;
                                         for (size_t i = 2; i < path.size(); ++i) {
-                                            v.waypointQueue.push_back(path[i]);
+                                            QueuedOperation op;
+                                            op.type = OperationType::WALK;
+                                            op.targetPosition = path[i];
+                                            v.operationQueue.push_back(op);
                                         }
                                     } else if (path.size() == 1) {
                                         v.targetPosition = path[0];

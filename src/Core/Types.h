@@ -19,6 +19,20 @@ struct AnimationSet
     std::vector<TextureFrame> frames;
 };
 
+enum class OperationType
+{
+    WALK,
+    BUILD
+};
+
+struct QueuedOperation
+{
+    OperationType type;
+    glm::vec2 targetPosition; // For WALK
+    int buildingIndex; // For BUILD - index into houses vector
+    glm::ivec2 targetTile; // For BUILD - tile position of building
+};
+
 struct Villager
 {
     glm::vec2 position = glm::vec2(0.0f);
@@ -29,7 +43,7 @@ struct Villager
     float moveSpeed = 53.66563f * 0.8f * 1.7f * 1.0f;
     float walkAnimTimer = 0.0f;
     int walkFrameIndex = 0;
-    std::deque<glm::vec2> waypointQueue;
+    std::deque<QueuedOperation> operationQueue; // Unified queue for walk/build operations
     int hp = 25;
     int maxHp = 25;
     bool isGarrisoned = false;
@@ -128,7 +142,8 @@ struct BuildTask
 struct PendingBuildInfo
 {
     int villagerIndex = -1;
-    int buildingIndex = -1;
+    int buildingIndex = -1; // -1 if not yet materialized
+    BuildableBuilding buildingType = BuildableBuilding::None;
     glm::ivec2 targetTile;
 };
 
