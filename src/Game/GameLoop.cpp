@@ -155,81 +155,102 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
         // ---------------------------------------------------------------------
         // Pending Build Handler - complete build setup when villagers have evacuated
         // ---------------------------------------------------------------------
-        if (appState.pendingBuildInfo.villagerIndex >= 0 && appState.pendingBuildInfo.buildingIndex >= 0)
+        if (!appState.pendingBuildQueue.empty())
         {
-            const int vIndex = appState.pendingBuildInfo.villagerIndex;
-            const int bIndex = appState.pendingBuildInfo.buildingIndex;
-            const glm::ivec2& tile = appState.pendingBuildInfo.targetTile;
-
-            if (vIndex < static_cast<int>(appState.villagers.size()) &&
-                bIndex < static_cast<int>(appState.houses.size()) &&
-                !appState.villagers[vIndex].moving)
+            // Find the first pending build for a villager that has stopped moving and is not currently building
+            for (size_t i = 0; i < appState.pendingBuildQueue.size(); )
             {
-                Villager& v = appState.villagers[vIndex];
-                House& house = appState.houses[bIndex];
+                const PendingBuildInfo& pending = appState.pendingBuildQueue[i];
+                const int vIndex = pending.villagerIndex;
+                const int bIndex = pending.buildingIndex;
+                const glm::ivec2& tile = pending.targetTile;
 
-                // Convert ghost to real foundation - now it blocks tiles
-                house.isGhostFoundation = false;
-                rebuild_blocked_tiles(engine, appState);
+                std::cerr << "[PENDING] checking villager " << vIndex << " building " << bIndex
+                          << " moving=" << appState.villagers[vIndex].moving
+                          << " isBuilding=" << appState.villagers[vIndex].isBuilding << std::endl;
 
-                // Villager has arrived at evacuation tile - find path to build target
-                float bestDist = 1e9f;
-                glm::vec2 buildTarget = house.position;
+                // Check if villager exists, building exists, is not moving, and not already building
+                bool villagerExists = vIndex >= 0 && vIndex < static_cast<int>(appState.villagers.size());
+                bool buildingExists = bIndex >= 0 && bIndex < static_cast<int>(appState.houses.size());
+                bool villagerIdle = villagerExists && appState.villagers[vIndex].moving == false && appState.villagers[vIndex].isBuilding == false;
+                bool buildingIsGhost = buildingExists && appState.houses[bIndex].isGhostFoundation;
+                // Also process if this pending entry is for the building the villager is currently heading to
+                bool pendingMatchesTarget = villagerExists && appState.villagers[vIndex].buildingTargetIndex == bIndex;
 
-                for (int dx = -1; dx <= 2; ++dx)
+                if (villagerExists && buildingExists && (villagerIdle || pendingMatchesTarget) && buildingIsGhost)
                 {
-                    for (int dy = -1; dy <= 2; ++dy)
+                    Villager& v = appState.villagers[vIndex];
+                    House& house = appState.houses[bIndex];
+
+                    // Convert ghost to real foundation - now it blocks tiles
+                    house.isGhostFoundation = false;
+                    rebuild_blocked_tiles(engine, appState);
+
+                    // Set buildingTargetIndex so the villager knows which building to build when they arrive
+                    v.buildingTargetIndex = bIndex;
+
+                    // Villager has arrived at evacuation tile - find path to build target
+                    float bestDist = 1e9f;
+                    glm::vec2 buildTarget = house.position;
+
+                    for (int dx = -1; dx <= 2; ++dx)
                     {
-                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
-                        glm::ivec2 p(tile.x + dx, tile.y + dy);
-                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
+                        for (int dy = -1; dy <= 2; ++dy)
                         {
-                            float dist = glm::length(tile_to_world(p) - v.position);
-                            if (dist < bestDist)
+                            if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                            glm::ivec2 p(tile.x + dx, tile.y + dy);
+                            if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
                             {
-                                bestDist = dist;
-                                buildTarget = tile_to_world(p);
+                                float dist = glm::length(tile_to_world(p) - v.position);
+                                if (dist < bestDist)
+                                {
+                                    bestDist = dist;
+                                    buildTarget = tile_to_world(p);
+                                }
                             }
                         }
                     }
-                }
 
-                std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
-                v.waypointQueue.clear();
-                if (path.size() > 1)
-                {
-                    v.targetPosition = path[1];
-                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                    v.moving = true;
-                    for (size_t i = 2; i < path.size(); ++i)
+                    std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
+                    v.waypointQueue.clear();
+                    if (path.size() > 1)
                     {
-                        v.waypointQueue.push_back(path[i]);
+                        v.targetPosition = path[1];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = true;
+                        for (size_t j = 2; j < path.size(); ++j)
+                        {
+                            v.waypointQueue.push_back(path[j]);
+                        }
                     }
+                    else if (path.size() == 1)
+                    {
+                        v.targetPosition = path[0];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                    }
+
+                    // If villager is already at the build target, start building immediately
+                    if (glm::length(buildTarget - v.position) < 1.0f)
+                    {
+                        v.isBuilding = true;
+                        v.builderFrameIndex = 0;
+                        v.builderAnimTimer = 0.0f;
+                    }
+
+                    BuildTask task;
+                    task.villagerIndex = vIndex;
+                    task.buildingIndex = bIndex;
+                    task.targetTile = tile;
+                    appState.buildTasks.push_back(task);
+
+                    // Remove this pending build from queue
+                    appState.pendingBuildQueue.erase(appState.pendingBuildQueue.begin() + i);
                 }
-                else if (path.size() == 1)
+                else
                 {
-                    v.targetPosition = path[0];
-                    v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                    v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                    ++i;
                 }
-
-                // If villager is already at the build target, start building immediately
-                if (glm::length(buildTarget - v.position) < 1.0f)
-                {
-                    v.isBuilding = true;
-                    v.builderFrameIndex = 0;
-                    v.builderAnimTimer = 0.0f;
-                }
-
-                BuildTask task;
-                task.villagerIndex = vIndex;
-                task.buildingIndex = bIndex;
-                task.targetTile = tile;
-                appState.buildTasks.push_back(task);
-
-                // Clear pending build
-                appState.pendingBuildInfo.villagerIndex = -1;
-                appState.pendingBuildInfo.buildingIndex = -1;
             }
         }
 
@@ -672,7 +693,9 @@ void RenderScene(EngineState& engine, AppState& appState)
                 const House& house = appState.houses[payload.index];
                 const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
                 glUniform2f(engine.gpu.spriteSizeLoc, appState.houseSpriteSize.x, appState.houseSpriteSize.y);
-                glUniform1f(engine.gpu.spriteVisLoc, appState.tileVisibilities[houseIndex]);
+                // Ghost foundations render at 50% visibility to distinguish them
+                float houseVis = house.isGhostFoundation ? 0.5f : appState.tileVisibilities[houseIndex];
+                glUniform1f(engine.gpu.spriteVisLoc, houseVis);
 
                 GLuint houseTexture;
                 if (house.isUnderConstruction)
@@ -940,6 +963,100 @@ void RenderScene(EngineState& engine, AppState& appState)
                         glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
                     else
                         glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.75f);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                }
+            }
+            // Render waypoints for queued builds (when villager is still building first house)
+            else if (v.selected && !v.moving && v.isBuilding)
+            {
+                // Find the first pending build for this villager
+                glm::vec2 queuedBuildPos = glm::vec2(0.0f);
+                bool foundQueuedBuild = false;
+                int thisVillagerIdx = -1;
+                for (size_t vi = 0; vi < appState.villagers.size(); ++vi)
+                {
+                    if (&appState.villagers[vi] == &v)
+                    {
+                        thisVillagerIdx = static_cast<int>(vi);
+                        break;
+                    }
+                }
+                if (thisVillagerIdx < 0) continue;
+                for (const PendingBuildInfo& pending : appState.pendingBuildQueue)
+                {
+                    if (pending.villagerIndex == thisVillagerIdx)
+                    {
+                        // Found a pending build for this villager - use the building's adjacent tile as waypoint
+                        const House& house = appState.houses[pending.buildingIndex];
+                        // Find an adjacent tile for the waypoint
+                        float bestDist = 1e9f;
+                        for (int dx = -1; dx <= 2; ++dx)
+                        {
+                            for (int dy = -1; dy <= 2; ++dy)
+                            {
+                                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                glm::ivec2 p(house.tile.x + dx, house.tile.y + dy);
+                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE)
+                                {
+                                    glm::vec2 worldP = tile_to_world(p);
+                                    float dist = glm::length(worldP - v.position);
+                                    if (dist < bestDist)
+                                    {
+                                        bestDist = dist;
+                                        queuedBuildPos = worldP;
+                                    }
+                                }
+                            }
+                        }
+                        foundQueuedBuild = true;
+                        break;
+                    }
+                }
+
+                if (foundQueuedBuild)
+                {
+                    // Draw a line from villager to queued build position
+                    static unsigned int queuedLineVAO = 0;
+                    static unsigned int queuedLineVBO = 0;
+                    if (queuedLineVAO == 0)
+                    {
+                        glGenVertexArrays(1, &queuedLineVAO);
+                        glGenBuffers(1, &queuedLineVBO);
+                    }
+                    glBindVertexArray(queuedLineVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, queuedLineVBO);
+                    float lineVerts[] = { v.position.x, v.position.y, queuedBuildPos.x, queuedBuildPos.y };
+                    glBufferData(GL_ARRAY_BUFFER, sizeof(lineVerts), lineVerts, GL_DYNAMIC_DRAW);
+                    glEnableVertexAttribArray(0);
+                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, 0.0f, 0.0f);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.55f); // Yellow like normal waypoints
+                    glDrawArrays(GL_LINE_STRIP, 0, 2);
+
+                    // Draw a diamond marker at the queued build position
+                    static unsigned int queuedWpVAO = 0;
+                    static unsigned int queuedWpVBO = 0;
+                    if (queuedWpVAO == 0)
+                    {
+                        const float wpHW = 8.0f;
+                        const float wpHH = 4.0f;
+                        const float diamond[] = {
+                             0.0f,  wpHH,
+                             wpHW,  0.0f,
+                             0.0f, -wpHH,
+                            -wpHW,  0.0f
+                        };
+                        glGenVertexArrays(1, &queuedWpVAO);
+                        glGenBuffers(1, &queuedWpVBO);
+                        glBindVertexArray(queuedWpVAO);
+                        glBindBuffer(GL_ARRAY_BUFFER, queuedWpVBO);
+                        glBufferData(GL_ARRAY_BUFFER, sizeof(diamond), diamond, GL_STATIC_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+                    }
+                    glBindVertexArray(queuedWpVAO);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, queuedBuildPos.x, queuedBuildPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.75f); // Yellow like normal waypoints
                     glDrawArrays(GL_LINE_LOOP, 0, 4);
                 }
             }

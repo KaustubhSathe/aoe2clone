@@ -139,7 +139,7 @@ struct AppState
     std::vector<TownCenter> townCenters;
     std::vector<House> houses;
 
-    PendingBuildInfo pendingBuildInfo;
+    std::vector<PendingBuildInfo> pendingBuildQueue;
 
     glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f);
     glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f);

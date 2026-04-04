@@ -269,7 +269,11 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 }
 
                                 std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
-                                v.waypointQueue.clear();
+                                const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+                                if (!shiftHeld)
+                                {
+                                    v.waypointQueue.clear();
+                                }
                                 if (path.size() > 1)
                                 {
                                     v.targetPosition = path[1];
@@ -303,12 +307,38 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             // DON'T rebuild blocked tiles yet - ghost doesn't block
 
                             Villager& v = gAppState->villagers[villagerIndex];
+
+                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+
+                            // If shift is held and villager already has a build in progress/pending, queue this build
+                            if (shiftHeld && (v.isBuilding || !gAppState->pendingBuildQueue.empty()))
+                            {
+                                // Queue the build for after current one finishes
+                                // DO NOT set v.buildingTargetIndex - keep it pointing to current building
+                                PendingBuildInfo queued;
+                                queued.villagerIndex = villagerIndex;
+                                queued.buildingIndex = buildingIndex;
+                                queued.targetTile = tile;
+                                gAppState->pendingBuildQueue.push_back(queued);
+
+                                // Don't set up evacuation path or pendingBuildInfo - just return
+                                gAppState->selectedBuilding = BuildableBuilding::None;
+                                gAppState->cursorMode = CursorMode::Normal;
+                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                                gAppState->selection.dragging = false;
+                                gAppState->selection.moved = false;
+                                return;
+                            }
+
+                            // Normal case: villager is free, set up as current build
                             v.buildingTargetIndex = buildingIndex;
 
-                            // Always use pending build - when villager arrives, ghost becomes solid and building starts
-                            gAppState->pendingBuildInfo.villagerIndex = villagerIndex;
-                            gAppState->pendingBuildInfo.buildingIndex = buildingIndex;
-                            gAppState->pendingBuildInfo.targetTile = tile;
+                            // Normal case: set up pending build for when villager arrives
+                            PendingBuildInfo pending;
+                            pending.villagerIndex = villagerIndex;
+                            pending.buildingIndex = buildingIndex;
+                            pending.targetTile = tile;
+                            gAppState->pendingBuildQueue.push_back(pending);
 
                             // Find path for villager to move to an adjacent tile (evacuation)
                             float bestDist = 1e9f;
