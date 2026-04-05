@@ -34,7 +34,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 }
                 else if (nextOp.type == OperationType::BUILD)
                 {
-                    v.operationQueue.erase(v.operationQueue.begin());
+                    // Don't pop the BUILD op — it stays at front until construction completes.
                     EntityId bId = nextOp.buildingId;
                     const glm::ivec2& tile = nextOp.targetTile;
 
@@ -58,11 +58,12 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                         house.assignedVillagerId = v.uuid;
                         bId = house.uuid;
                         appState.houses[house.uuid] = house;
+                        // Update the queue entry with the newly created building's ID
+                        v.operationQueue.front().buildingId = bId;
                     }
 
                     House& house = appState.houses.at(bId);
                     // Don't convert ghost to solid here - wait until villager actually starts building
-                    // Ghost will be converted at lines 238-241 or 425-429
 
                     float bestDist = 1e9f;
                     glm::vec2 buildTarget = house.position;
@@ -84,20 +85,19 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                         }
                     }
 
-                    v.buildingTargetId = bId;
-
                     std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
                     if (path.size() > 1)
                     {
                         v.targetPosition = path[1];
                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
                         v.moving = true;
+                        // Insert walk waypoints AFTER the BUILD op (index 1, not 0)
                         for (size_t j = path.size(); j-- > 2; )
                         {
                             QueuedOperation wp;
                             wp.type = OperationType::WALK;
                             wp.targetPosition = path[j];
-                            v.operationQueue.insert(v.operationQueue.begin(), wp);
+                            v.operationQueue.insert(v.operationQueue.begin() + 1, wp);
                         }
                     }
                     else if (path.size() == 1)
@@ -140,12 +140,16 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
 
                     // First, check if we've arrived at our assigned build target
                     bool arrivedAtBuilding = false;
-                    if (v.buildingTargetId != 0 && appState.houses.count(v.buildingTargetId) > 0)
+                    if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
                     {
-                        House& house = appState.houses.at(v.buildingTargetId);
-                        if (glm::length(house.position - v.position) <= 1.5f)
+                        EntityId bId = v.operationQueue.front().buildingId;
+                        if (bId != 0 && appState.houses.count(bId) > 0)
                         {
-                            arrivedAtBuilding = true;
+                            House& house = appState.houses.at(bId);
+                            if (glm::length(house.position - v.position) <= 1.5f)
+                            {
+                                arrivedAtBuilding = true;
+                            }
                         }
                     }
 
@@ -159,8 +163,29 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     {
                         if (v.operationQueue.front().type == OperationType::BUILD)
                         {
-                            // Do not pop high-level architecture tasks while moving
-                            v.moving = false;
+                            // BUILD is at front — walk waypoints are at index 1+
+                            if (v.operationQueue.size() > 1 && v.operationQueue[1].type == OperationType::WALK)
+                            {
+                                QueuedOperation nextOp = v.operationQueue[1];
+                                v.operationQueue.erase(v.operationQueue.begin() + 1);
+
+                                const glm::vec2 toNext = nextOp.targetPosition - v.position;
+                                if (glm::length(toNext) > 1.0f)
+                                {
+                                    v.targetPosition = nextOp.targetPosition;
+                                    v.facingDirection = glm::normalize(toNext);
+                                    v.moving = true;
+                                }
+                                else
+                                {
+                                    v.moving = false;
+                                }
+                            }
+                            else
+                            {
+                                // No more walk waypoints before the build — stop and let build trigger fire
+                                v.moving = false;
+                            }
                         }
                         else
                         {
@@ -245,24 +270,22 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
             }
 
             // If villager was walking to a building site, start building when arrived
-            if (!v.moving && v.buildingTargetId != 0 && !v.isBuilding)
+            if (!v.moving && !v.isBuilding
+                && !v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
             {
-                v.isBuilding = true;
-                v.builderFrameIndex = 0;
-                v.builderAnimTimer = 0.0f;
-
-                // Clear the BUILD operation from queue since we're now building
-                if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
+                EntityId bId = v.operationQueue.front().buildingId;
+                if (bId != 0 && appState.houses.count(bId) > 0)
                 {
-                    v.operationQueue.erase(v.operationQueue.begin());
-                }
+                    v.isBuilding = true;
+                    v.builderFrameIndex = 0;
+                    v.builderAnimTimer = 0.0f;
 
-                // Convert ghost foundation to real when villager starts building
-                if (v.buildingTargetId != 0 && appState.houses.count(v.buildingTargetId) > 0)
-                {
-                    House& house = appState.houses.at(v.buildingTargetId);
+                    // Convert ghost foundation to real when villager starts building
+                    House& house = appState.houses.at(bId);
                     if (house.isGhostFoundation)
                     {
+                        printf("Ghost->Solid: buildingId=%llu tile=(%d,%d) queueSize=%zu\n",
+                            bId, house.tile.x, house.tile.y, v.operationQueue.size());
                         house.isGhostFoundation = false;
                         rebuild_blocked_tiles(engine, appState);
                     }
@@ -270,30 +293,36 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
             }
 
             // Handle building task progress
-            if (v.isBuilding && v.buildingTargetId != 0 && appState.houses.count(v.buildingTargetId) > 0)
+            if (v.isBuilding && !v.operationQueue.empty()
+                && v.operationQueue.front().type == OperationType::BUILD)
             {
-                // Per-villager timer for builder animation
-                v.builderAnimTimer += deltaTime;
-                const float frameTime = 1.0f / WALK_ANIMATION_FPS;
-                while (v.builderAnimTimer >= frameTime)
+                EntityId bId = v.operationQueue.front().buildingId;
+                if (bId != 0 && appState.houses.count(bId) > 0)
                 {
-                    v.builderAnimTimer -= frameTime;
-                    v.builderFrameIndex = (v.builderFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
-                }
-
-                House& house = appState.houses.at(v.buildingTargetId);
-                if (house.isUnderConstruction && house.buildProgress < 1.0f)
-                {
-                    house.buildProgress += (deltaTime * 1.7f) / HOUSE_BUILD_TIME;
-                    if (house.buildProgress >= 1.0f)
+                    // Per-villager timer for builder animation
+                    v.builderAnimTimer += deltaTime;
+                    const float frameTime = 1.0f / WALK_ANIMATION_FPS;
+                    while (v.builderAnimTimer >= frameTime)
                     {
-                        house.buildProgress = 1.0f;
-                        house.isUnderConstruction = false;
-                        house.assignedVillagerId = 0;
-                        appState.housePopulationBonus += 5;
-                        appState.maxPopulation = 5 + appState.housePopulationBonus;
-                        v.isBuilding = false;
-                        v.buildingTargetId = 0;
+                        v.builderAnimTimer -= frameTime;
+                        v.builderFrameIndex = (v.builderFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
+                    }
+
+                    House& house = appState.houses.at(bId);
+                    if (house.isUnderConstruction && house.buildProgress < 1.0f)
+                    {
+                        house.buildProgress += (deltaTime * 1.7f) / HOUSE_BUILD_TIME;
+                        if (house.buildProgress >= 1.0f)
+                        {
+                            house.buildProgress = 1.0f;
+                            house.isUnderConstruction = false;
+                            house.assignedVillagerId = 0;
+                            appState.housePopulationBonus += 5;
+                            appState.maxPopulation = 5 + appState.housePopulationBonus;
+                            v.isBuilding = false;
+                            // Pop the completed BUILD op — next op in queue will be processed next frame
+                            v.operationQueue.erase(v.operationQueue.begin());
+                        }
                     }
                 }
             }
@@ -900,9 +929,13 @@ void RenderScene(EngineState& engine, AppState& appState)
             }
 
             // Render build progress bar for building villagers
-            if (v.isBuilding && v.buildingTargetId != 0 && appState.houses.count(v.buildingTargetId) > 0)
+            if (v.isBuilding && !v.operationQueue.empty()
+                && v.operationQueue.front().type == OperationType::BUILD)
             {
-                const House& house = appState.houses.at(v.buildingTargetId);
+                EntityId bId = v.operationQueue.front().buildingId;
+                if (bId != 0 && appState.houses.count(bId) > 0)
+                {
+                const House& house = appState.houses.at(bId);
                 if (house.isUnderConstruction)
                 {
                     // Progress bar background
@@ -936,6 +969,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                         glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 0.8f, 0.0f, 1.0f);
                         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
                     }
+                }
                 }
             }
 
@@ -1501,6 +1535,43 @@ void RenderUI(EngineState& engine, AppState& appState)
                 char hpText[32];
                 snprintf(hpText, sizeof(hpText), "Wood: %d", tree.hp);
                 ImGui::ProgressBar(static_cast<float>(tree.hp) / static_cast<float>(tree.maxHp), ImVec2(200.0f, 20.0f), hpText);
+            }
+            else
+            {
+                // Check if any house is selected
+                House* firstSelectedHouse = nullptr;
+                EntityId firstSelectedHouseId = 0;
+                for (auto& [uuid, house] : appState.houses)
+                {
+                    if (house.selected)
+                    {
+                        firstSelectedHouse = &house;
+                        firstSelectedHouseId = uuid;
+                        break;
+                    }
+                }
+
+                if (firstSelectedHouse)
+                {
+                    ImGui::BeginGroup();
+                    ImGui::Text("House");
+                    char hpText[32];
+                    snprintf(hpText, sizeof(hpText), "Health: %d / %d", firstSelectedHouse->hp, firstSelectedHouse->maxHp);
+                    ImGui::ProgressBar(static_cast<float>(firstSelectedHouse->hp) / static_cast<float>(firstSelectedHouse->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                    ImGui::Text("Melee Armor: -2");
+                    ImGui::Text("Pierce Armor: 7");
+                    ImGui::Text("Build Time: 25s");
+                    ImGui::Text("Cost: 25 wood");
+                    ImGui::Text("Population: 5");
+                    if (firstSelectedHouse->isUnderConstruction)
+                    {
+                        ImGui::Text("Status: Under Construction");
+                        char buildText[32];
+                        snprintf(buildText, sizeof(buildText), "Progress: %.0f%%", firstSelectedHouse->buildProgress * 100.0f);
+                        ImGui::ProgressBar(firstSelectedHouse->buildProgress, ImVec2(200.0f, 20.0f), buildText);
+                    }
+                    ImGui::EndGroup();
+                }
             }
 
             // --- Column 2: Minimap ---

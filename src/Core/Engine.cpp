@@ -5,6 +5,7 @@
 #include "../Game/GameLogicHelpers.h"
 #include "../Game/Pathfinding.h"
 #include <imgui.h>
+#include <algorithm>
 
 // =============================================================================
 // GLFW CALLBACKS
@@ -353,17 +354,19 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             if (v.isBuilding)
                             {
                                 // Abort the current building
-                                EntityId oldBuildingId = v.buildingTargetId;
-                                if (oldBuildingId != 0 && gAppState->houses.count(oldBuildingId) > 0)
+                                if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
                                 {
-                                    House& oldHouse = gAppState->houses.at(oldBuildingId);
-                                    oldHouse.isUnderConstruction = true;
-                                    oldHouse.isGhostFoundation = true;
-                                    oldHouse.buildProgress = 0.0f;
-                                    oldHouse.assignedVillagerId = 0;
+                                    EntityId oldBuildingId = v.operationQueue.front().buildingId;
+                                    if (oldBuildingId != 0 && gAppState->houses.count(oldBuildingId) > 0)
+                                    {
+                                        House& oldHouse = gAppState->houses.at(oldBuildingId);
+                                        oldHouse.isUnderConstruction = true;
+                                        oldHouse.isGhostFoundation = true;
+                                        oldHouse.buildProgress = 0.0f;
+                                        oldHouse.assignedVillagerId = 0;
+                                    }
                                 }
                                 v.isBuilding = false;
-                                v.buildingTargetId = 0;
                             }
 
                             // Add BUILD operation to the queue
@@ -686,19 +689,21 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                     }
 
                                     // Without shift, cancel previous building and start new one
-                                    if (v.isBuilding && v.buildingTargetId != 0)
+                                    if (v.isBuilding && !v.operationQueue.empty()
+                                        && v.operationQueue.front().type == OperationType::BUILD)
                                     {
-                                        if (gAppState->houses.count(v.buildingTargetId) > 0)
+                                        EntityId oldBId = v.operationQueue.front().buildingId;
+                                        if (oldBId != 0 && gAppState->houses.count(oldBId) > 0)
                                         {
-                                            gAppState->houses.at(v.buildingTargetId).assignedVillagerId = 0;
+                                            gAppState->houses.at(oldBId).assignedVillagerId = 0;
                                         }
                                     }
-                                    // Clear queued operations since we're overriding
+                                    // Clear queued operations and reset building state since we're overriding
                                     v.operationQueue.clear();
+                                    v.isBuilding = false;
                                 }
 
                                 // Set up building task (only when not shift-queueing, since we continued above)
-                                v.buildingTargetId = houseUUID;
                                 house.assignedVillagerId = vUUID;
 
                                 // Find adjacent tile to building
@@ -741,6 +746,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                             op.targetPosition = path[j];
                                             v.operationQueue.push_back(op);
                                         }
+                                        // Queue the BUILD operation at the end (after all WALK ops)
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = houseUUID;
+                                        buildOp.targetTile = house.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
                                     }
                                     else if (path.size() == 1)
                                     {
@@ -748,6 +761,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
                                         v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
                                         v.isBuilding = false;
+                                        // Queue the BUILD operation
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = houseUUID;
+                                        buildOp.targetTile = house.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
                                     }
                                     else
                                     {
@@ -807,15 +828,16 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 // Abort current tasks if shift is NOT held
                 if (!shiftHeld)
                 {
-                    if (v.buildingTargetId != 0)
+                    // If currently building, clear the assignment on the house
+                    if (v.isBuilding && !v.operationQueue.empty()
+                        && v.operationQueue.front().type == OperationType::BUILD)
                     {
-                        // Clear the building assignment
-                        if (gAppState->houses.count(v.buildingTargetId) > 0)
+                        EntityId bId = v.operationQueue.front().buildingId;
+                        if (bId != 0 && gAppState->houses.count(bId) > 0)
                         {
-                            gAppState->houses.at(v.buildingTargetId).assignedVillagerId = 0;
+                            gAppState->houses.at(bId).assignedVillagerId = 0;
                         }
                         v.isBuilding = false;
-                        v.buildingTargetId = 0;
                     }
 
                     v.operationQueue.clear();
@@ -1061,7 +1083,14 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             {
                 Villager& v = gAppState->villagers.at(house.assignedVillagerId);
                 v.isBuilding = false;
-                v.buildingTargetId = 0;
+                // Remove any BUILD ops referencing this house from the villager's queue
+                v.operationQueue.erase(
+                    std::remove_if(v.operationQueue.begin(), v.operationQueue.end(),
+                        [houseUUID](const QueuedOperation& op) {
+                            return op.type == OperationType::BUILD && op.buildingId == houseUUID;
+                        }),
+                    v.operationQueue.end()
+                );
             }
 
             // Remove the house

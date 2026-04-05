@@ -152,6 +152,7 @@ std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
     }
     for (const auto& [uuid, house] : appState.houses)
     {
+        if (house.isGhostFoundation) continue; // Ghost foundations don't block tiles
         for (int dx = 0; dx < 2; dx++)
         {
             for (int dy = 0; dy < 2; dy++)

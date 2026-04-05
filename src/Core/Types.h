@@ -65,7 +65,6 @@ struct Villager
     EntityId targetTcId = 0;
     EntityId garrisonTcId = 0;
     bool isBuilding = false;
-    EntityId buildingTargetId = 0;
     int builderFrameIndex = 0;
     float builderAnimTimer = 0.0f;
 };
