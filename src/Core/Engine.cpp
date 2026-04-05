@@ -1098,6 +1098,35 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             rebuild_blocked_tiles(*gEngine, *gAppState);
         }
     }
+
+    // Alt+Enter toggles fullscreen mode
+    if (key == GLFW_KEY_ENTER && action == GLFW_PRESS && (mods & GLFW_MOD_ALT) != 0)
+    {
+        static int windowedWidth = 1280;
+        static int windowedHeight = 720;
+        GLFWmonitor* monitor = glfwGetWindowMonitor(window);
+        if (monitor != nullptr)
+        {
+            // Currently fullscreen - exit to windowed mode
+            glfwSetWindowMonitor(window, nullptr, 100, 100, windowedWidth, windowedHeight, 0);
+        }
+        else
+        {
+            // Currently windowed - enter fullscreen
+            GLFWmonitor* primaryMonitor = glfwGetPrimaryMonitor();
+            if (primaryMonitor != nullptr)
+            {
+                // Save current window size for when we exit fullscreen
+                int currentWidth, currentHeight;
+                glfwGetWindowSize(window, &currentWidth, &currentHeight);
+                windowedWidth = currentWidth;
+                windowedHeight = currentHeight;
+
+                const GLFWvidmode* mode = glfwGetVideoMode(primaryMonitor);
+                glfwSetWindowMonitor(window, primaryMonitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+            }
+        }
+    }
 }
 
 // GLFW callback fired when the window is resized.
