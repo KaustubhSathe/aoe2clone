@@ -28,12 +28,22 @@ enum class OperationType
     BUILD
 };
 
+enum class BuildableBuilding
+{
+    None,
+    House,
+    Mill,
+    MiningCamp,
+    LumberCamp
+};
+
 struct QueuedOperation
 {
     OperationType type;
     glm::vec2 targetPosition; // For WALK
-    EntityId buildingId = 0; // For BUILD - EntityId of target house
+    EntityId buildingId = 0; // For BUILD - EntityId of target house (0 if not yet created)
     glm::ivec2 targetTile; // For BUILD - tile position of building
+    BuildableBuilding buildingType = BuildableBuilding::None; // For BUILD - type to create if buildingId == 0
 };
 
 struct Villager
@@ -130,27 +140,10 @@ enum class CursorMode
     BuildMil
 };
 
-enum class BuildableBuilding
-{
-    None,
-    House,
-    Mill,
-    MiningCamp,
-    LumberCamp
-};
-
 struct BuildTask
 {
     EntityId villagerId = 0;
     EntityId buildingId = 0;
-    glm::ivec2 targetTile;
-};
-
-struct PendingBuildInfo
-{
-    EntityId villagerId = 0;
-    EntityId buildingId = 0; // 0 if not yet materialized
-    BuildableBuilding buildingType = BuildableBuilding::None;
     glm::ivec2 targetTile;
 };
 
@@ -160,8 +153,6 @@ struct AppState
     std::unordered_map<EntityId, PineTree> pineTrees;
     std::unordered_map<EntityId, TownCenter> townCenters;
     std::unordered_map<EntityId, House> houses;
-
-    std::vector<PendingBuildInfo> pendingBuildQueue;
 
     glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f);
     glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f);

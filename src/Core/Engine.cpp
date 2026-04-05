@@ -299,15 +299,32 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
                             const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
 
-                            // If shift is held, queue this build - don't create house yet
+                            // If shift is held, queue this build - create ghost house immediately
                             if (shiftHeldForQueue)
                             {
-                                // Queue the build for after current one finishes
-                                PendingBuildInfo queued;
-                                queued.villagerId = villagerUUID;
-                                queued.buildingType = BuildableBuilding::House;
-                                queued.targetTile = tile;
-                                gAppState->pendingBuildQueue.push_back(queued);
+                                // Deduct resources when creating the queued house
+                                gAppState->wood -= HOUSE_COST_WOOD;
+
+                                // Create ghost house immediately so it appears at the location
+                                House queuedHouse;
+                                queuedHouse.uuid = gNextUuid++;
+                                queuedHouse.tile = tile;
+                                queuedHouse.position = tile_to_world(tile);
+                                queuedHouse.hp = 500;
+                                queuedHouse.maxHp = 500;
+                                queuedHouse.isUnderConstruction = true;
+                                queuedHouse.isGhostFoundation = true;
+                                queuedHouse.assignedVillagerId = villagerUUID;
+                                gAppState->houses[queuedHouse.uuid] = queuedHouse;
+
+                                // Queue the BUILD operation with the house's UUID
+                                QueuedOperation buildOp;
+                                buildOp.type = OperationType::BUILD;
+                                buildOp.buildingId = queuedHouse.uuid;
+                                buildOp.targetTile = tile;
+                                buildOp.buildingType = BuildableBuilding::House;
+                                buildOp.targetPosition = glm::vec2(0.0f);
+                                v.operationQueue.push_back(buildOp);
 
                                 gAppState->selectedBuilding = BuildableBuilding::None;
                                 gAppState->cursorMode = CursorMode::Normal;
@@ -347,12 +364,6 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 }
                                 v.isBuilding = false;
                                 v.buildingTargetId = 0;
-
-                                // Clear any pending builds for this villager (we're overriding with new build)
-                                gAppState->pendingBuildQueue.erase(
-                                    std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
-                                        [villagerUUID](const PendingBuildInfo& p) { return p.villagerId == villagerUUID; }),
-                                    gAppState->pendingBuildQueue.end());
                             }
 
                             // Add BUILD operation to the queue
@@ -663,12 +674,14 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                     // If shift is held, queue this build instead of overriding
                                     if ((mods & GLFW_MOD_SHIFT) != 0)
                                     {
-                                        // Queue the build
-                                        PendingBuildInfo queued;
-                                        queued.villagerId = vUUID;
-                                        queued.buildingId = houseUUID;
-                                        queued.targetTile = house.tile;
-                                        gAppState->pendingBuildQueue.push_back(queued);
+                                        // Queue the build operation to villager's queue
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = houseUUID;
+                                        buildOp.targetTile = house.tile;
+                                        buildOp.buildingType = BuildableBuilding::None; // House already exists
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
                                         continue; // Don't override, just queue and continue
                                     }
 
@@ -806,11 +819,6 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     }
 
                     v.operationQueue.clear();
-
-                    gAppState->pendingBuildQueue.erase(
-                        std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
-                            [vUUID](const PendingBuildInfo& p) { return p.villagerId == vUUID; }),
-                        gAppState->pendingBuildQueue.end());
                 }
 
                 glm::vec2 finalTarget = (destIndex < groupDestinations.size())
@@ -838,21 +846,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 break;
                             }
                         }
-                        if (!foundPos) startPos = v.targetPosition;
-                    }
-                    else if (!gAppState->pendingBuildQueue.empty())
-                    {
-                        bool foundPending = false;
-                        for (auto it = gAppState->pendingBuildQueue.rbegin(); it != gAppState->pendingBuildQueue.rend(); ++it)
-                        {
-                            if (it->villagerId == vUUID)
-                            {
-                                startPos = tile_to_world(it->targetTile);
-                                foundPending = true;
-                                break;
-                            }
-                        }
-                        if (!foundPending && (v.moving || v.isBuilding)) startPos = v.targetPosition;
+                        if (!foundPos && (v.moving || v.isBuilding)) startPos = v.targetPosition;
                     }
                     else if (v.moving || v.isBuilding)
                     {

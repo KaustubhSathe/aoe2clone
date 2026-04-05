@@ -35,63 +35,83 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 else if (nextOp.type == OperationType::BUILD)
                 {
                     v.operationQueue.erase(v.operationQueue.begin());
-                    const EntityId bId = nextOp.buildingId;
+                    EntityId bId = nextOp.buildingId;
                     const glm::ivec2& tile = nextOp.targetTile;
-                    if (bId != 0 && appState.houses.count(bId) > 0)
-                    {
-                        House& house = appState.houses.at(bId);
-                        // Don't convert ghost to solid here - wait until villager actually starts building
-                        // Ghost will be converted at lines 238-241 or 425-429
 
-                        float bestDist = 1e9f;
-                        glm::vec2 buildTarget = house.position;
-                        for (int dx = -1; dx <= 2; ++dx)
+                    // If building doesn't exist yet (queued build), create it now
+                    if (bId == 0 || appState.houses.count(bId) == 0)
+                    {
+                        // Deduct resources when creating the building
+                        if (nextOp.buildingType == BuildableBuilding::House)
                         {
-                            for (int dy = -1; dy <= 2; ++dy)
+                            appState.wood -= HOUSE_COST_WOOD;
+                        }
+
+                        House house;
+                        house.uuid = gNextUuid++;
+                        house.tile = tile;
+                        house.position = tile_to_world(tile);
+                        house.hp = 500;
+                        house.maxHp = 500;
+                        house.isUnderConstruction = true;
+                        house.isGhostFoundation = true;
+                        house.assignedVillagerId = v.uuid;
+                        bId = house.uuid;
+                        appState.houses[house.uuid] = house;
+                    }
+
+                    House& house = appState.houses.at(bId);
+                    // Don't convert ghost to solid here - wait until villager actually starts building
+                    // Ghost will be converted at lines 238-241 or 425-429
+
+                    float bestDist = 1e9f;
+                    glm::vec2 buildTarget = house.position;
+                    for (int dx = -1; dx <= 2; ++dx)
+                    {
+                        for (int dy = -1; dy <= 2; ++dy)
+                        {
+                            if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                            glm::ivec2 p(tile.x + dx, tile.y + dy);
+                            if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
                             {
-                                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
-                                glm::ivec2 p(tile.x + dx, tile.y + dy);
-                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
+                                float dist = glm::length(tile_to_world(p) - v.position);
+                                if (dist < bestDist)
                                 {
-                                    float dist = glm::length(tile_to_world(p) - v.position);
-                                    if (dist < bestDist)
-                                    {
-                                        bestDist = dist;
-                                        buildTarget = tile_to_world(p);
-                                    }
+                                    bestDist = dist;
+                                    buildTarget = tile_to_world(p);
                                 }
                             }
                         }
+                    }
 
-                        v.buildingTargetId = bId;
+                    v.buildingTargetId = bId;
 
-                        std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
-                        if (path.size() > 1)
+                    std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
+                    if (path.size() > 1)
+                    {
+                        v.targetPosition = path[1];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = true;
+                        for (size_t j = path.size(); j-- > 2; )
                         {
-                            v.targetPosition = path[1];
-                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                            v.moving = true;
-                            for (size_t j = path.size(); j-- > 2; )
-                            {
-                                QueuedOperation wp;
-                                wp.type = OperationType::WALK;
-                                wp.targetPosition = path[j];
-                                v.operationQueue.insert(v.operationQueue.begin(), wp);
-                            }
+                            QueuedOperation wp;
+                            wp.type = OperationType::WALK;
+                            wp.targetPosition = path[j];
+                            v.operationQueue.insert(v.operationQueue.begin(), wp);
                         }
-                        else if (path.size() == 1)
-                        {
-                            v.targetPosition = path[0];
-                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                            v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
-                        }
+                    }
+                    else if (path.size() == 1)
+                    {
+                        v.targetPosition = path[0];
+                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                    }
 
-                        if (glm::length(buildTarget - v.position) < 1.0f)
-                        {
-                            v.isBuilding = true;
-                            v.builderFrameIndex = 0;
-                            v.builderAnimTimer = 0.0f;
-                        }
+                    if (glm::length(buildTarget - v.position) < 1.0f)
+                    {
+                        v.isBuilding = true;
+                        v.builderFrameIndex = 0;
+                        v.builderAnimTimer = 0.0f;
                     }
                 }
             }
@@ -275,172 +295,6 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                         v.isBuilding = false;
                         v.buildingTargetId = 0;
                     }
-                }
-            }
-        }
-
-        // ---------------------------------------------------------------------
-        // Pending Build Handler - complete build setup when villagers have evacuated
-        // ---------------------------------------------------------------------
-        if (!appState.pendingBuildQueue.empty())
-        {
-            // Find the first pending build for a villager that has stopped moving and is not currently building
-            for (size_t i = 0; i < appState.pendingBuildQueue.size(); )
-            {
-                const PendingBuildInfo& pending = appState.pendingBuildQueue[i];
-                const EntityId vId = pending.villagerId;
-                const EntityId bId = pending.buildingId;
-                const glm::ivec2& tile = pending.targetTile;
-
-                // Check if villager exists, building exists, is not moving, and not already building
-                bool villagerExists = vId != 0 && appState.villagers.count(vId) > 0;
-                bool buildingExists = bId != 0 && appState.houses.count(bId) > 0;
-
-                // Skip if villager doesn't exist
-                if (!villagerExists)
-                {
-                    std::cerr << "[PENDING] skipping invalid villager " << vId << std::endl;
-                    appState.pendingBuildQueue.erase(appState.pendingBuildQueue.begin() + i);
-                    continue;
-                }
-
-                std::cerr << "[PENDING] checking villager " << vId << " building " << bId
-                          << " moving=" << appState.villagers.at(vId).moving
-                          << " isBuilding=" << appState.villagers.at(vId).isBuilding << std::endl;
-
-                bool villagerIdle = appState.villagers.at(vId).moving == false && appState.villagers.at(vId).isBuilding == false;
-                bool buildingIsGhost = buildingExists && appState.houses.at(bId).isGhostFoundation;
-                // Also process if this is the first pending entry for this villager (respect queue order)
-                bool isFirstPendingForVillager = false;
-                if (villagerExists)
-                {
-                    for (size_t j = 0; j < appState.pendingBuildQueue.size(); ++j)
-                    {
-                        if (appState.pendingBuildQueue[j].villagerId == vId)
-                        {
-                            isFirstPendingForVillager = (j == i);
-                            break;
-                        }
-                    }
-                }
-                // Only process if villager is idle AND this is first pending (queue order), OR if matches current target, OR if this is a new building to create (but only first one per frame)
-                bool pendingMatchesTarget = villagerExists && appState.villagers.at(vId).buildingTargetId == bId;
-                bool needsNewBuilding = !buildingExists && pending.buildingType != BuildableBuilding::None;
-
-                if (villagerExists && (buildingExists || needsNewBuilding) && ((needsNewBuilding && isFirstPendingForVillager) || (villagerIdle && isFirstPendingForVillager) || pendingMatchesTarget) && (buildingIsGhost || needsNewBuilding))
-                {
-                    Villager& v = appState.villagers.at(vId);
-                    EntityId actualBId = bId;
-
-                    // If building doesn't exist yet (queued build), create it now as ghost
-                    if (needsNewBuilding)
-                    {
-                        // Deduct resources when actually creating the building
-                        if (pending.buildingType == BuildableBuilding::House)
-                        {
-                            appState.wood -= HOUSE_COST_WOOD;
-                        }
-
-                        House house;
-                        house.uuid = gNextUuid++;
-                        house.tile = tile;
-                        house.position = tile_to_world(tile);
-                        house.hp = 500;
-                        house.maxHp = 500;
-                        house.isUnderConstruction = true;
-                        house.isGhostFoundation = true;
-                        house.assignedVillagerId = vId;
-                        actualBId = house.uuid;
-                        appState.houses[house.uuid] = house;
-                        // Don't rebuild blocked tiles yet - ghost doesn't block
-                    }
-
-                    House& house = appState.houses.at(actualBId);
-
-                    // Only convert ghost to real if this is NOT a new building (new buildings stay ghost until villager starts)
-                    if (!needsNewBuilding)
-                    {
-                        // Convert ghost to real foundation - now it blocks tiles
-                        house.isGhostFoundation = false;
-                        rebuild_blocked_tiles(engine, appState);
-                    }
-
-                    // Only set buildingTargetId and setup movement if this is the first pending (not already building something)
-                    if (isFirstPendingForVillager || !needsNewBuilding)
-                    {
-                        // Set buildingTargetId so the villager knows which building to build when they arrive
-                        v.buildingTargetId = actualBId;
-
-                        // Villager has arrived at evacuation tile - find path to build target
-                        float bestDist = 1e9f;
-                        glm::vec2 buildTarget = house.position;
-
-                        for (int dx = -1; dx <= 2; ++dx)
-                        {
-                            for (int dy = -1; dy <= 2; ++dy)
-                            {
-                                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
-                                glm::ivec2 p(tile.x + dx, tile.y + dy);
-                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(appState, p))
-                                {
-                                    float dist = glm::length(tile_to_world(p) - v.position);
-                                    if (dist < bestDist)
-                                    {
-                                        bestDist = dist;
-                                        buildTarget = tile_to_world(p);
-                                    }
-                                }
-                            }
-                        }
-
-                        std::vector<glm::vec2> path = find_path(appState, v.position, buildTarget);
-
-                        if (path.size() > 1)
-                        {
-                            v.targetPosition = path[1];
-                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                            v.moving = true;
-                            for (size_t j = 2; j < path.size(); ++j)
-                            {
-                                v.operationQueue.push_back({OperationType::WALK, path[j], 0, glm::ivec2(0)});
-                            }
-                        }
-                        else if (path.size() == 1)
-                        {
-                            v.targetPosition = path[0];
-                            v.facingDirection = glm::normalize(v.targetPosition - v.position);
-                            v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
-                        }
-
-                        // If villager is already at the build target, start building immediately
-                        if (glm::length(buildTarget - v.position) < 1.0f)
-                        {
-                            v.isBuilding = true;
-                            v.builderFrameIndex = 0;
-                            v.builderAnimTimer = 0.0f;
-                        }
-                    }
-
-                    // Add BUILD operation to queue for this building
-                    QueuedOperation buildOp;
-                    buildOp.type = OperationType::BUILD;
-                    buildOp.buildingId = actualBId;
-                    buildOp.targetTile = tile;
-                    buildOp.targetPosition = glm::vec2(0.0f);
-                    v.operationQueue.push_back(buildOp);
-
-                    BuildTask task;
-                    task.villagerId = vId;
-                    task.buildingId = actualBId;
-                    task.targetTile = tile;
-                    appState.buildTasks.push_back(task);
-
-                    // Remove this pending build from queue
-                    appState.pendingBuildQueue.erase(appState.pendingBuildQueue.begin() + i);
-                }
-                else
-                {
-                    ++i;
                 }
             }
         }
@@ -1087,6 +941,7 @@ void RenderScene(EngineState& engine, AppState& appState)
 
             if (v.selected && v.moving)
             {
+                // Collect all waypoints to show the full path, but only mark the final destination
                 std::vector<glm::vec2> allWPs;
                 allWPs.reserve(1 + v.operationQueue.size());
                 allWPs.push_back(v.targetPosition);
@@ -1097,28 +952,9 @@ void RenderScene(EngineState& engine, AppState& appState)
                         allWPs.push_back(op.targetPosition);
                     }
                 }
+                glm::vec2 finalDestination = allWPs.back();
 
-                static unsigned int wpVAO = 0;
-                static unsigned int wpVBO = 0;
-                if (wpVAO == 0)
-                {
-                    const float wpHW = 8.0f;
-                    const float wpHH = 4.0f;
-                    const float diamond[] = {
-                         0.0f,  wpHH,
-                         wpHW,  0.0f,
-                         0.0f, -wpHH,
-                        -wpHW,  0.0f
-                    };
-                    glGenVertexArrays(1, &wpVAO);
-                    glGenBuffers(1, &wpVBO);
-                    glBindVertexArray(wpVAO);
-                    glBindBuffer(GL_ARRAY_BUFFER, wpVBO);
-                    glBufferData(GL_ARRAY_BUFFER, sizeof(diamond), diamond, GL_STATIC_DRAW);
-                    glEnableVertexAttribArray(0);
-                    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
-                }
-
+                // Draw line from villager through all waypoints to final destination
                 {
                     std::vector<float> lineVerts;
                     lineVerts.reserve((1 + allWPs.size()) * 2);
@@ -1151,54 +987,72 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(lineVerts.size() / 2));
                 }
 
-                glBindVertexArray(wpVAO);
-                for (size_t i = 0; i < allWPs.size(); ++i)
+                // Draw only the final destination as yellow dot
                 {
-                    const glm::vec2& wp = allWPs[i];
-                    glUniform2f(engine.gpu.overlayOffsetLoc, wp.x, wp.y);
-                    if (i == 0)
-                        glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
-                    else
-                        glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.75f);
+                    static unsigned int wpVAO = 0;
+                    static unsigned int wpVBO = 0;
+                    if (wpVAO == 0)
+                    {
+                        const float wpHW = 8.0f;
+                        const float wpHH = 4.0f;
+                        const float diamond[] = {
+                             0.0f,  wpHH,
+                             wpHW,  0.0f,
+                             0.0f, -wpHH,
+                            -wpHW,  0.0f
+                        };
+                        glGenVertexArrays(1, &wpVAO);
+                        glGenBuffers(1, &wpVBO);
+                        glBindVertexArray(wpVAO);
+                        glBindBuffer(GL_ARRAY_BUFFER, wpVBO);
+                        glBufferData(GL_ARRAY_BUFFER, sizeof(diamond), diamond, GL_STATIC_DRAW);
+                        glEnableVertexAttribArray(0);
+                        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+                    }
+                    glBindVertexArray(wpVAO);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, finalDestination.x, finalDestination.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
                     glDrawArrays(GL_LINE_LOOP, 0, 4);
                 }
             }
             // Render waypoints for queued builds (when villager is still building first house)
             else if (v.selected && !v.moving && v.isBuilding)
             {
-                // Find the first pending build for this villager
+                // Find the first queued BUILD operation in this villager's operationQueue
                 glm::vec2 queuedBuildPos = glm::vec2(0.0f);
                 bool foundQueuedBuild = false;
-                for (const PendingBuildInfo& pending : appState.pendingBuildQueue)
+                for (const QueuedOperation& op : v.operationQueue)
                 {
-                    if (pending.villagerId == v.uuid)
+                    if (op.type == OperationType::BUILD)
                     {
-                        // Found a pending build for this villager - use the building's adjacent tile as waypoint
-                        if (pending.buildingId != 0 && appState.houses.count(pending.buildingId) > 0)
+                        // buildingId == 0 means house not created yet, use targetTile
+                        // Otherwise use the existing house
+                        glm::ivec2 buildTile = op.targetTile;
+                        if (op.buildingId != 0 && appState.houses.count(op.buildingId) > 0)
                         {
-                            const House& house = appState.houses.at(pending.buildingId);
-                            // Find an adjacent tile for the waypoint
-                            float bestDist = 1e9f;
-                            for (int dx = -1; dx <= 2; ++dx)
+                            buildTile = appState.houses.at(op.buildingId).tile;
+                        }
+                        // Find an adjacent tile for the waypoint
+                        float bestDist = 1e9f;
+                        for (int dx = -1; dx <= 2; ++dx)
+                        {
+                            for (int dy = -1; dy <= 2; ++dy)
                             {
-                                for (int dy = -1; dy <= 2; ++dy)
+                                if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                glm::ivec2 p(buildTile.x + dx, buildTile.y + dy);
+                                if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE)
                                 {
-                                    if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
-                                    glm::ivec2 p(house.tile.x + dx, house.tile.y + dy);
-                                    if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE)
+                                    glm::vec2 worldP = tile_to_world(p);
+                                    float dist = glm::length(worldP - v.position);
+                                    if (dist < bestDist)
                                     {
-                                        glm::vec2 worldP = tile_to_world(p);
-                                        float dist = glm::length(worldP - v.position);
-                                        if (dist < bestDist)
-                                        {
-                                            bestDist = dist;
-                                            queuedBuildPos = worldP;
-                                        }
+                                        bestDist = dist;
+                                        queuedBuildPos = worldP;
                                     }
                                 }
                             }
-                            foundQueuedBuild = true;
                         }
+                        foundQueuedBuild = true;
                         break;
                     }
                 }
