@@ -33,20 +33,20 @@ bool tree_hit_test_screen(const PineTree& tree, const glm::dvec2& cursorScreen, 
 
 void clear_selection(AppState& appState)
 {
-    appState.selectedTreeIndex = -1;
-    for (Villager& v : appState.villagers)
+    appState.selectedTreeId = 0;
+    for (auto& [uuid, v] : appState.villagers)
     {
         v.selected = false;
     }
-    for (PineTree& tree : appState.pineTrees)
+    for (auto& [uuid, tree] : appState.pineTrees)
     {
         tree.selected = false;
     }
-    for (TownCenter& tc : appState.townCenters)
+    for (auto& [uuid, tc] : appState.townCenters)
     {
         tc.selected = false;
     }
-    for (House& house : appState.houses)
+    for (auto& [uuid, house] : appState.houses)
     {
         house.selected = false;
     }
@@ -109,11 +109,11 @@ bool house_hit_test_screen(const House& house, const glm::dvec2& cursorScreen, c
 
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
 {
-    for (const PineTree& tree : appState.pineTrees)
+    for (const auto& [uuid, tree] : appState.pineTrees)
     {
         if (tree.tile == tile) return true;
     }
-    for (const TownCenter& tc : appState.townCenters)
+    for (const auto& [uuid, tc] : appState.townCenters)
     {
         if (tile.x >= tc.tile.x && tile.x < tc.tile.x + 4 &&
             tile.y >= tc.tile.y && tile.y < tc.tile.y + 4)
@@ -121,7 +121,7 @@ bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
             return true;
         }
     }
-    for (const House& house : appState.houses)
+    for (const auto& [uuid, house] : appState.houses)
     {
         if (house.isGhostFoundation) continue; // Ghost foundations don't block
         if (tile.x >= house.tile.x && tile.x < house.tile.x + 2 &&
@@ -136,11 +136,11 @@ bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
 std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
 {
     std::vector<glm::vec2> blockedTiles;
-    for (const PineTree& tree : appState.pineTrees)
+    for (const auto& [uuid, tree] : appState.pineTrees)
     {
         blockedTiles.push_back(tile_to_world(tree.tile));
     }
-    for (const TownCenter& tc : appState.townCenters)
+    for (const auto& [uuid, tc] : appState.townCenters)
     {
         for (int dx = 0; dx < 4; dx++)
         {
@@ -150,7 +150,7 @@ std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
             }
         }
     }
-    for (const House& house : appState.houses)
+    for (const auto& [uuid, house] : appState.houses)
     {
         for (int dx = 0; dx < 2; dx++)
         {

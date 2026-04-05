@@ -104,7 +104,7 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
 
     // Update pending build tile for highlighting (only when a villager is selected)
     bool anyVillagerSelected = false;
-    for (const Villager& v : gAppState->villagers)
+    for (const auto& [uuid, v] : gAppState->villagers)
     {
         if (v.selected && !v.isGarrisoned)
         {
@@ -210,29 +210,28 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 {
                     if (gAppState->wood >= HOUSE_COST_WOOD)
                     {
-                        int villagerIndex = -1;
-                        for (int i = 0; i < static_cast<int>(gAppState->villagers.size()); ++i)
+                        EntityId villagerUUID = 0;
+                        for (auto& [uuid, v] : gAppState->villagers)
                         {
-                            if (gAppState->villagers[i].selected && !gAppState->villagers[i].isGarrisoned)
+                            if (v.selected && !v.isGarrisoned)
                             {
-                                villagerIndex = i;
+                                villagerUUID = uuid;
                                 break;
                             }
                         }
 
-                        if (villagerIndex >= 0)
+                        if (villagerUUID != 0)
                         {
                             const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
                             if (!shiftHeld)
                             {
-                                gAppState->villagers[villagerIndex].operationQueue.clear();
+                                gAppState->villagers.at(villagerUUID).operationQueue.clear();
                             }
 
                             // Check if any villager is standing on the building tiles
-                            std::vector<int> villagersOnBuildingTiles;
-                            for (int i = 0; i < static_cast<int>(gAppState->villagers.size()); ++i)
+                            std::vector<EntityId> villagersOnBuildingTiles;
+                            for (auto& [uuid, vCheck] : gAppState->villagers)
                             {
-                                Villager& vCheck = gAppState->villagers[i];
                                 if (vCheck.isGarrisoned) continue;
                                 const std::optional<glm::ivec2> vTileOpt = world_to_tile(vCheck.position);
                                 if (vTileOpt.has_value())
@@ -242,15 +241,15 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                                       vTile.y >= tile.y && vTile.y < tile.y + 2);
                                     if (onBuilding)
                                     {
-                                        villagersOnBuildingTiles.push_back(i);
+                                        villagersOnBuildingTiles.push_back(uuid);
                                     }
                                 }
                             }
 
                             // Move villagers off building tiles first (before house is added to blocked list)
-                            for (int vIndex : villagersOnBuildingTiles)
+                            for (EntityId vUUID : villagersOnBuildingTiles)
                             {
-                                Villager& v = gAppState->villagers[vIndex];
+                                Villager& v = gAppState->villagers.at(vUUID);
 
                                 // Find adjacent tile to move to (using current blocked state, before house is added)
                                 float bestDist = 1e9f;
@@ -284,7 +283,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                         QueuedOperation op;
                                         op.type = OperationType::WALK;
                                         op.targetPosition = path[i];
-                                        v.operationQueue.push_front(op);
+                                        v.operationQueue.insert(v.operationQueue.begin(), op);
                                     }
                                 }
                                 else if (path.size() == 1)
@@ -292,11 +291,11 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                     QueuedOperation op;
                                     op.type = OperationType::WALK;
                                     op.targetPosition = path[0];
-                                    v.operationQueue.push_front(op);
+                                    v.operationQueue.insert(v.operationQueue.begin(), op);
                                 }
                             }
 
-                            Villager& v = gAppState->villagers[villagerIndex];
+                            Villager& v = gAppState->villagers.at(villagerUUID);
 
                             const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
 
@@ -305,7 +304,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             {
                                 // Queue the build for after current one finishes
                                 PendingBuildInfo queued;
-                                queued.villagerIndex = villagerIndex;
+                                queued.villagerId = villagerUUID;
                                 queued.buildingType = BuildableBuilding::House;
                                 queued.targetTile = tile;
                                 gAppState->pendingBuildQueue.push_back(queued);
@@ -322,44 +321,44 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             gAppState->wood -= HOUSE_COST_WOOD;
 
                             House house;
+                            house.uuid = gNextUuid++;
                             house.tile = tile;
                             house.position = tile_to_world(tile);
                             house.hp = 500;
                             house.maxHp = 500;
                             house.isUnderConstruction = true;
                             house.isGhostFoundation = true; // Don't block tiles until villager arrives
-                            house.assignedVillagerIndex = villagerIndex;
-                            int buildingIndex = static_cast<int>(gAppState->houses.size());
-                            gAppState->houses.push_back(house);
+                            house.assignedVillagerId = villagerUUID;
+                            gAppState->houses[house.uuid] = house;
                             // DON'T rebuild blocked tiles yet - ghost doesn't block
 
                             // If villager is already building (without shift), abort old build and start new one
                             if (v.isBuilding)
                             {
                                 // Abort the current building
-                                int oldBuildingIndex = v.buildingTargetIndex;
-                                if (oldBuildingIndex >= 0 && oldBuildingIndex < static_cast<int>(gAppState->houses.size()))
+                                EntityId oldBuildingId = v.buildingTargetId;
+                                if (oldBuildingId != 0 && gAppState->houses.count(oldBuildingId) > 0)
                                 {
-                                    House& oldHouse = gAppState->houses[oldBuildingIndex];
+                                    House& oldHouse = gAppState->houses.at(oldBuildingId);
                                     oldHouse.isUnderConstruction = true;
                                     oldHouse.isGhostFoundation = true;
                                     oldHouse.buildProgress = 0.0f;
-                                    oldHouse.assignedVillagerIndex = -1;
+                                    oldHouse.assignedVillagerId = 0;
                                 }
                                 v.isBuilding = false;
-                                v.buildingTargetIndex = -1;
+                                v.buildingTargetId = 0;
 
                                 // Clear any pending builds for this villager (we're overriding with new build)
                                 gAppState->pendingBuildQueue.erase(
                                     std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
-                                        [villagerIndex](const PendingBuildInfo& p) { return p.villagerIndex == villagerIndex; }),
+                                        [villagerUUID](const PendingBuildInfo& p) { return p.villagerId == villagerUUID; }),
                                     gAppState->pendingBuildQueue.end());
                             }
 
                             // Add BUILD operation to the queue
                             QueuedOperation buildOp;
                             buildOp.type = OperationType::BUILD;
-                            buildOp.buildingIndex = buildingIndex;
+                            buildOp.buildingId = house.uuid;
                             buildOp.targetTile = tile;
                             buildOp.targetPosition = glm::vec2(0.0f); // Will be set when processing
                             v.operationQueue.push_back(buildOp);
@@ -385,7 +384,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         if (gAppState->selection.dragging && gAppState->selection.moved)
         {
             clear_selection(*gAppState);
-            for (Villager& v : gAppState->villagers)
+            for (auto& [uuid, v] : gAppState->villagers)
             {
                 if (v.isGarrisoned) continue;
                 const glm::vec2 vsp = world_to_screen(v.position);
@@ -396,62 +395,59 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         {
             clear_selection(*gAppState);
 
-            int clickedTreeIndex = -1;
-            for (int i = static_cast<int>(gAppState->pineTrees.size()) - 1; i >= 0; i--)
+            EntityId clickedTreeUUID = 0;
+            for (auto& [uuid, tree] : gAppState->pineTrees)
             {
-                const PineTree& tree = gAppState->pineTrees[static_cast<size_t>(i)];
                 const int treeIndex = tree.tile.y * GRID_SIZE + tree.tile.x;
                 if (gAppState->tileVisibilities[treeIndex] > 0.0f && tree_hit_test_screen(tree, gAppState->cursorScreen, gAppState->pineTreeSpriteSize))
                 {
-                    clickedTreeIndex = i;
+                    clickedTreeUUID = uuid;
                     break;
                 }
             }
 
-            if (clickedTreeIndex >= 0)
+            if (clickedTreeUUID != 0)
             {
-                gAppState->selectedTreeIndex = clickedTreeIndex;
-                gAppState->pineTrees[static_cast<size_t>(clickedTreeIndex)].selected = true;
+                gAppState->selectedTreeId = clickedTreeUUID;
+                gAppState->pineTrees.at(clickedTreeUUID).selected = true;
             }
             else
             {
-                int clickedTCIndex = -1;
-                for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+                EntityId clickedTCUUID = 0;
+                for (auto& [uuid, tc] : gAppState->townCenters)
                 {
-                    const TownCenter& tc = gAppState->townCenters[i];
                     const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
                     if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
                     {
-                        clickedTCIndex = i;
+                        clickedTCUUID = uuid;
                         break;
                     }
                 }
-                
-                if (clickedTCIndex >= 0)
+
+                if (clickedTCUUID != 0)
                 {
-                    gAppState->townCenters[static_cast<size_t>(clickedTCIndex)].selected = true;
+                    gAppState->townCenters.at(clickedTCUUID).selected = true;
                 }
                 else
                 {
-                    int clickedHouseIndex = -1;
-                    for (int i = static_cast<int>(gAppState->houses.size()) - 1; i >= 0; i--)
+                    EntityId clickedHouseUUID = 0;
+                    for (auto& [uuid, house] : gAppState->houses)
                     {
-                        const House& house = gAppState->houses[i];
                         const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
                         if (gAppState->tileVisibilities[houseIndex] > 0.0f && house_hit_test_screen(house, gAppState->cursorScreen, gAppState->houseSpriteSize))
                         {
-                            clickedHouseIndex = i;
+                            clickedHouseUUID = uuid;
                             break;
                         }
                     }
 
-                    if (clickedHouseIndex >= 0)
+                    if (clickedHouseUUID != 0)
                     {
-                        gAppState->houses[static_cast<size_t>(clickedHouseIndex)].selected = true;
+                        gAppState->houses.at(clickedHouseUUID).selected = true;
                     }
                     else
                     {
-                        for (Villager& v : gAppState->villagers)
+                        for (auto& [uuid, v] : gAppState->villagers)
                         {
                             if (v.isGarrisoned) continue;
                             const glm::vec2 vsp = world_to_screen(v.position);
@@ -476,31 +472,30 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         if (gAppState->cursorMode == CursorMode::Garrison)
         {
             // Check if clicking on a town center
-            int garrisonTCIndex = -1;
-            for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+            EntityId garrisonTCUUID = 0;
+            for (auto& [uuid, tc] : gAppState->townCenters)
             {
-                const TownCenter& tc = gAppState->townCenters[i];
                 const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
                 if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
                 {
-                    garrisonTCIndex = i;
+                    garrisonTCUUID = uuid;
                     break;
                 }
             }
 
-            if (garrisonTCIndex >= 0)
+            if (garrisonTCUUID != 0)
             {
                 // Find any selected villagers
                 bool anySelected = false;
-                for (const Villager& v : gAppState->villagers)
+                for (const auto& [uuid, v] : gAppState->villagers)
                 {
                     if (v.selected && !v.isGarrisoned) anySelected = true;
                 }
 
                 if (anySelected)
                 {
-                    const TownCenter& targetTc = gAppState->townCenters[garrisonTCIndex];
-                    for (Villager& v : gAppState->villagers)
+                    const TownCenter& targetTc = gAppState->townCenters.at(garrisonTCUUID);
+                    for (auto& [uuid, v] : gAppState->villagers)
                     {
                         if (!v.selected || v.isGarrisoned) continue;
 
@@ -524,7 +519,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
                         v.operationQueue.clear();
                         v.isMovingToGarrison = true;
-                        v.targetTcIndex = garrisonTCIndex;
+                        v.targetTcId = garrisonTCUUID;
                         if (path.size() > 1) {
                             v.targetPosition = path[1];
                             v.facingDirection = glm::normalize(v.targetPosition - v.position);
@@ -541,9 +536,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             v.moving = true;
                         } else {
                             if (targetTc.garrisonCount < targetTc.maxGarrison) {
-                                gAppState->townCenters[garrisonTCIndex].garrisonCount++;
+                                gAppState->townCenters.at(garrisonTCUUID).garrisonCount++;
                                 v.isGarrisoned = true;
-                                v.garrisonTcIndex = garrisonTCIndex;
+                                v.garrisonTcId = garrisonTCUUID;
                                 v.selected = false;
                                 v.moving = false;
                                 v.isMovingToGarrison = false;
@@ -560,7 +555,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         }
 
         bool anySelected = false;
-        for (const Villager& v : gAppState->villagers)
+        for (const auto& [uuid, v] : gAppState->villagers)
         {
             if (v.selected && !v.isGarrisoned) anySelected = true;
         }
@@ -568,7 +563,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         TownCenter* selectedTC = nullptr;
         if (!anySelected)
         {
-            for (TownCenter& tc : gAppState->townCenters)
+            for (auto& [tcUUID, tc] : gAppState->townCenters)
             {
                 if (tc.selected)
                 {
@@ -580,25 +575,24 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
         if (anySelected)
         {
-            int garrisonTCIndex = -1;
+            EntityId garrisonTCUUID = 0;
             if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS)
             {
-                for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+                for (auto& [uuid, tc] : gAppState->townCenters)
                 {
-                    const TownCenter& tc = gAppState->townCenters[i];
                     const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
                     if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
                     {
-                        garrisonTCIndex = i;
+                        garrisonTCUUID = uuid;
                         break;
                     }
                 }
             }
 
-            if (garrisonTCIndex >= 0)
+            if (garrisonTCUUID != 0)
             {
-                const TownCenter& targetTc = gAppState->townCenters[garrisonTCIndex];
-                for (Villager& v : gAppState->villagers)
+                const TownCenter& targetTc = gAppState->townCenters.at(garrisonTCUUID);
+                for (auto& [uuid, v] : gAppState->villagers)
                 {
                     if (!v.selected || v.isGarrisoned) continue;
 
@@ -622,7 +616,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     std::vector<glm::vec2> path = find_path(*gAppState, v.position, bestTarget);
                     v.operationQueue.clear();
                     v.isMovingToGarrison = true;
-                    v.targetTcIndex = garrisonTCIndex;
+                    v.targetTcId = garrisonTCUUID;
                     if (path.size() > 1) {
                         v.targetPosition = path[1];
                         v.facingDirection = glm::normalize(v.targetPosition - v.position);
@@ -639,9 +633,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         v.moving = true;
                     } else {
                         if (targetTc.garrisonCount < targetTc.maxGarrison) {
-                            gAppState->townCenters[garrisonTCIndex].garrisonCount++;
+                            gAppState->townCenters.at(garrisonTCUUID).garrisonCount++;
                             v.isGarrisoned = true;
-                            v.garrisonTcIndex = garrisonTCIndex;
+                            v.garrisonTcId = garrisonTCUUID;
                             v.selected = false;
                             v.moving = false;
                             v.isMovingToGarrison = false;
@@ -652,14 +646,13 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             else
             {
                 // Check if right-clicking on an incomplete house to resume building
-                for (size_t i = 0; i < gAppState->houses.size(); ++i)
+                for (auto& [houseUUID, house] : gAppState->houses)
                 {
-                    House& house = gAppState->houses[i];
                     const int houseTileIndex = house.tile.y * GRID_SIZE + house.tile.x;
                     if (house.isUnderConstruction && gAppState->tileVisibilities[houseTileIndex] > 0.0f && house_hit_test_screen(house, gAppState->cursorScreen, gAppState->houseSpriteSize))
                     {
                         // Find a selected villager to assign to building
-                        for (Villager& v : gAppState->villagers)
+                        for (auto& [vUUID, v] : gAppState->villagers)
                         {
                             if (v.selected && !v.isGarrisoned)
                             {
@@ -672,19 +665,19 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                     {
                                         // Queue the build
                                         PendingBuildInfo queued;
-                                        queued.villagerIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
-                                        queued.buildingIndex = static_cast<int>(i);
+                                        queued.villagerId = vUUID;
+                                        queued.buildingId = houseUUID;
                                         queued.targetTile = house.tile;
                                         gAppState->pendingBuildQueue.push_back(queued);
                                         continue; // Don't override, just queue and continue
                                     }
 
                                     // Without shift, cancel previous building and start new one
-                                    if (v.isBuilding && v.buildingTargetIndex >= 0)
+                                    if (v.isBuilding && v.buildingTargetId != 0)
                                     {
-                                        if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                                        if (gAppState->houses.count(v.buildingTargetId) > 0)
                                         {
-                                            gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                                            gAppState->houses.at(v.buildingTargetId).assignedVillagerId = 0;
                                         }
                                     }
                                     // Clear queued operations since we're overriding
@@ -692,8 +685,8 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 }
 
                                 // Set up building task (only when not shift-queueing, since we continued above)
-                                v.buildingTargetIndex = static_cast<int>(i);
-                                house.assignedVillagerIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
+                                v.buildingTargetId = houseUUID;
+                                house.assignedVillagerId = vUUID;
 
                                 // Find adjacent tile to building
                                 float bestDist = 1e9f;
@@ -772,7 +765,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                 if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
             {
                 // Invalid tile — cancel all movement.
-                for (Villager& v : gAppState->villagers)
+                for (auto& [uuid, v] : gAppState->villagers)
                 {
                     if (v.selected)
                     {
@@ -785,7 +778,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             }
 
             int selectedCount = 0;
-            for (const Villager& v : gAppState->villagers)
+            for (const auto& [uuid, v] : gAppState->villagers)
             {
                 if (v.selected) selectedCount++;
             }
@@ -794,30 +787,29 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
             const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
 
             int destIndex = 0;
-            for (Villager& v : gAppState->villagers)
+            for (auto& [vUUID, v] : gAppState->villagers)
             {
                 if (!v.selected) continue;
 
                 // Abort current tasks if shift is NOT held
                 if (!shiftHeld)
                 {
-                    if (v.buildingTargetIndex >= 0)
+                    if (v.buildingTargetId != 0)
                     {
                         // Clear the building assignment
-                        if (v.buildingTargetIndex < static_cast<int>(gAppState->houses.size()))
+                        if (gAppState->houses.count(v.buildingTargetId) > 0)
                         {
-                            gAppState->houses[v.buildingTargetIndex].assignedVillagerIndex = -1;
+                            gAppState->houses.at(v.buildingTargetId).assignedVillagerId = 0;
                         }
                         v.isBuilding = false;
-                        v.buildingTargetIndex = -1;
+                        v.buildingTargetId = 0;
                     }
 
                     v.operationQueue.clear();
 
-                    int vIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
                     gAppState->pendingBuildQueue.erase(
                         std::remove_if(gAppState->pendingBuildQueue.begin(), gAppState->pendingBuildQueue.end(),
-                            [vIndex](const PendingBuildInfo& p) { return p.villagerIndex == vIndex; }),
+                            [vUUID](const PendingBuildInfo& p) { return p.villagerId == vUUID; }),
                         gAppState->pendingBuildQueue.end());
                 }
 
@@ -850,11 +842,10 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     }
                     else if (!gAppState->pendingBuildQueue.empty())
                     {
-                        int vIndex = static_cast<int>(std::distance(gAppState->villagers.data(), &v));
                         bool foundPending = false;
                         for (auto it = gAppState->pendingBuildQueue.rbegin(); it != gAppState->pendingBuildQueue.rend(); ++it)
                         {
-                            if (it->villagerIndex == vIndex)
+                            if (it->villagerId == vUUID)
                             {
                                 startPos = tile_to_world(it->targetTile);
                                 foundPending = true;
@@ -919,19 +910,18 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
         }
         else if (selectedTC)
         {
-            int clickedTCIndex = -1;
-            for (int i = 0; i < static_cast<int>(gAppState->townCenters.size()); ++i)
+            EntityId clickedTCUUID = 0;
+            for (auto& [uuid, tc] : gAppState->townCenters)
             {
-                const TownCenter& tc = gAppState->townCenters[i];
                 const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
                 if (gAppState->tileVisibilities[tcIndex] > 0.0f && town_center_hit_test_screen(tc, gAppState->cursorScreen, gAppState->townCenterSpriteSize))
                 {
-                    clickedTCIndex = i;
+                    clickedTCUUID = uuid;
                     break;
                 }
             }
-            
-            if (clickedTCIndex >= 0 && &gAppState->townCenters[clickedTCIndex] == selectedTC) {
+
+            if (clickedTCUUID != 0 && &gAppState->townCenters.at(clickedTCUUID) == selectedTC) {
                 selectedTC->gatherPointIsSelf = true;
                 selectedTC->hasGatherPoint = false;
             } else {
@@ -1048,7 +1038,7 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     if (key == GLFW_KEY_G && action == GLFW_PRESS)
     {
         std::cout << "G key pressed - stopping selected villagers" << std::endl;
-        for (Villager& v : gAppState->villagers)
+        for (auto& [uuid, v] : gAppState->villagers)
         {
             if (v.selected)
             {
@@ -1061,27 +1051,28 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     if (key == GLFW_KEY_DELETE && action == GLFW_PRESS)
     {
-        for (size_t i = 0; i < gAppState->houses.size(); )
+        std::vector<EntityId> housesToDelete;
+        for (auto& [uuid, house] : gAppState->houses)
         {
-            House& house = gAppState->houses[i];
             if (house.selected)
             {
-                // Reset villager if it was building this house
-                if (house.assignedVillagerIndex >= 0 && house.assignedVillagerIndex < static_cast<int>(gAppState->villagers.size()))
-                {
-                    Villager& v = gAppState->villagers[house.assignedVillagerIndex];
-                    v.isBuilding = false;
-                    v.buildingTargetIndex = -1;
-                }
-
-                // Remove the house
-                gAppState->houses.erase(gAppState->houses.begin() + i);
-                rebuild_blocked_tiles(*gEngine, *gAppState);
+                housesToDelete.push_back(uuid);
             }
-            else
+        }
+        for (EntityId houseUUID : housesToDelete)
+        {
+            House& house = gAppState->houses.at(houseUUID);
+            // Reset villager if it was building this house
+            if (house.assignedVillagerId != 0 && gAppState->villagers.count(house.assignedVillagerId) > 0)
             {
-                ++i;
+                Villager& v = gAppState->villagers.at(house.assignedVillagerId);
+                v.isBuilding = false;
+                v.buildingTargetId = 0;
             }
+
+            // Remove the house
+            gAppState->houses.erase(houseUUID);
+            rebuild_blocked_tiles(*gEngine, *gAppState);
         }
     }
 }

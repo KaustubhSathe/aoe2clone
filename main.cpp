@@ -279,7 +279,6 @@ int main()
     // spawns in an open area and can move without immediately being blocked.
     // ~4% of eligible tiles outside the radius get a tree.
     // -------------------------------------------------------------------------
-    appState.pineTrees.reserve(220);
     for (int y = 0; y < GRID_SIZE; y++)
     {
         for (int x = 0; x < GRID_SIZE; x++)
@@ -295,9 +294,10 @@ int main()
             if ((hash % 100) < 4)
             {
                 PineTree tree;
+                tree.uuid = gNextUuid++;
                 tree.tile = glm::ivec2(x, y);
                 tree.position = tile_to_world(tree.tile);
-                appState.pineTrees.push_back(tree);
+                appState.pineTrees[tree.uuid] = tree;
             }
         }
     }
@@ -307,6 +307,7 @@ int main()
     // Spawn 1 Town Center and 3 Villagers
     // -------------------------------------------------------------------------
     TownCenter tc;
+    tc.uuid = gNextUuid++;
     tc.tile = glm::ivec2(GRID_SIZE / 2, GRID_SIZE / 2);
     // Align base 4x4 center accurately in world-space
     float cx = static_cast<float>(tc.tile.x) + 1.5f;
@@ -314,16 +315,17 @@ int main()
     tc.position = tile_to_world(glm::vec2(cx, cy));
     tc.hasGatherPoint = true;
     tc.gatherPoint = tile_to_world(glm::ivec2(tc.tile.x - 1, tc.tile.y + 6));
-    appState.townCenters.push_back(tc);
+    appState.townCenters[tc.uuid] = tc;
 
     for (int i = 0; i < 3; i++)
     {
         Villager v;
+        v.uuid = gNextUuid++;
         // Spawn them a few tiles south of the Town Center, which is 4x4 and ends at +3
         glm::ivec2 vTile = glm::ivec2((GRID_SIZE / 2) - 1 + i, (GRID_SIZE / 2) + 5);
         v.position = tile_to_world(vTile);
         v.targetPosition = v.position;
-        appState.villagers.push_back(v);
+        appState.villagers[v.uuid] = v;
     }
     
     // Jump camera to Town Center

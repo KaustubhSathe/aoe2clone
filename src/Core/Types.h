@@ -4,7 +4,10 @@
 #include <glm/glm.hpp>
 
 #include <vector>
-#include <deque>
+#include <unordered_map>
+#include <cstdint>
+
+using EntityId = uint64_t;
 
 struct TextureFrame
 {
@@ -29,12 +32,13 @@ struct QueuedOperation
 {
     OperationType type;
     glm::vec2 targetPosition; // For WALK
-    int buildingIndex; // For BUILD - index into houses vector
+    EntityId buildingId = 0; // For BUILD - EntityId of target house
     glm::ivec2 targetTile; // For BUILD - tile position of building
 };
 
 struct Villager
 {
+    EntityId uuid = 0;
     glm::vec2 position = glm::vec2(0.0f);
     glm::vec2 targetPosition = glm::vec2(0.0f);
     glm::vec2 facingDirection = glm::vec2(1.0f, 0.0f);
@@ -43,21 +47,22 @@ struct Villager
     float moveSpeed = 53.66563f * 0.8f * 1.7f * 1.0f;
     float walkAnimTimer = 0.0f;
     int walkFrameIndex = 0;
-    std::deque<QueuedOperation> operationQueue; // Unified queue for walk/build operations
+    std::vector<QueuedOperation> operationQueue; // Unified queue for walk/build operations
     int hp = 25;
     int maxHp = 25;
     bool isGarrisoned = false;
     bool isMovingToGarrison = false;
-    int targetTcIndex = -1;
-    int garrisonTcIndex = -1;
+    EntityId targetTcId = 0;
+    EntityId garrisonTcId = 0;
     bool isBuilding = false;
-    int buildingTargetIndex = -1;
+    EntityId buildingTargetId = 0;
     int builderFrameIndex = 0;
     float builderAnimTimer = 0.0f;
 };
 
 struct PineTree
 {
+    EntityId uuid = 0;
     glm::ivec2 tile = glm::ivec2(0);
     glm::vec2 position = glm::vec2(0.0f);
     bool selected = false;
@@ -67,6 +72,7 @@ struct PineTree
 
 struct House
 {
+    EntityId uuid = 0;
     glm::ivec2 tile = glm::ivec2(0);
     glm::vec2 position = glm::vec2(0.0f);
     bool selected = false;
@@ -75,11 +81,12 @@ struct House
     bool isUnderConstruction = true;
     bool isGhostFoundation = true; // Ghost doesn't block tiles until villager arrives
     float buildProgress = 0.0f;
-    int assignedVillagerIndex = -1;
+    EntityId assignedVillagerId = 0;
 };
 
 struct TownCenter
 {
+    EntityId uuid = 0;
     glm::ivec2 tile = glm::ivec2(0);
     glm::vec2 position = glm::vec2(0.0f);
     bool selected = false;
@@ -134,25 +141,25 @@ enum class BuildableBuilding
 
 struct BuildTask
 {
-    int villagerIndex = -1;
-    int buildingIndex = -1;
+    EntityId villagerId = 0;
+    EntityId buildingId = 0;
     glm::ivec2 targetTile;
 };
 
 struct PendingBuildInfo
 {
-    int villagerIndex = -1;
-    int buildingIndex = -1; // -1 if not yet materialized
+    EntityId villagerId = 0;
+    EntityId buildingId = 0; // 0 if not yet materialized
     BuildableBuilding buildingType = BuildableBuilding::None;
     glm::ivec2 targetTile;
 };
 
 struct AppState
 {
-    std::vector<Villager> villagers;
-    std::vector<PineTree> pineTrees;
-    std::vector<TownCenter> townCenters;
-    std::vector<House> houses;
+    std::unordered_map<EntityId, Villager> villagers;
+    std::unordered_map<EntityId, PineTree> pineTrees;
+    std::unordered_map<EntityId, TownCenter> townCenters;
+    std::unordered_map<EntityId, House> houses;
 
     std::vector<PendingBuildInfo> pendingBuildQueue;
 
@@ -161,7 +168,7 @@ struct AppState
     glm::vec2 houseSpriteSize = glm::vec2(128.0f, 128.0f);
     SelectionState selection;
     glm::dvec2 cursorScreen = glm::dvec2(0.0);
-    int selectedTreeIndex = -1;
+    EntityId selectedTreeId = 0;
     
     std::vector<bool> explored;
     std::vector<bool> visible;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Types.h"
+
 struct AppState;
 struct GLFWwindow;
 struct GLFWcursor;
@@ -17,5 +19,6 @@ extern float lastFrame;
 
 extern AppState* gAppState;
 extern GLFWcursor* gGarrisonCursor;
+extern EntityId gNextUuid;
 struct EngineState;
 extern EngineState* gEngine;

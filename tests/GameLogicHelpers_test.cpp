@@ -91,8 +91,9 @@ TEST(GameLogicHelpersTest, IsTileBlockedByPineTree)
 {
     AppState appState;
     PineTree tree;
+    tree.uuid = 1;
     tree.tile = glm::ivec2(5, 5);
-    appState.pineTrees.push_back(tree);
+    appState.pineTrees[tree.uuid] = tree;
 
     EXPECT_TRUE(is_tile_blocked(appState, glm::ivec2(5, 5)));
     EXPECT_FALSE(is_tile_blocked(appState, glm::ivec2(5, 6)));
@@ -103,8 +104,9 @@ TEST(GameLogicHelpersTest, IsTileBlockedByTownCenter)
 {
     AppState appState;
     TownCenter tc;
+    tc.uuid = 1;
     tc.tile = glm::ivec2(10, 10);
-    appState.townCenters.push_back(tc);
+    appState.townCenters[tc.uuid] = tc;
 
     // TC occupies 4x4 tiles
     EXPECT_TRUE(is_tile_blocked(appState, glm::ivec2(10, 10)));
@@ -126,8 +128,9 @@ TEST(GameLogicHelpersTest, BlockedTileTranslationsPineTree)
 {
     AppState appState;
     PineTree tree;
+    tree.uuid = 1;
     tree.tile = glm::ivec2(3, 7);
-    appState.pineTrees.push_back(tree);
+    appState.pineTrees[tree.uuid] = tree;
 
     auto blocked = blocked_tile_translations(appState);
     ASSERT_EQ(blocked.size(), 1u);
@@ -138,8 +141,9 @@ TEST(GameLogicHelpersTest, BlockedTileTranslationsTownCenter)
 {
     AppState appState;
     TownCenter tc;
+    tc.uuid = 1;
     tc.tile = glm::ivec2(5, 5);
-    appState.townCenters.push_back(tc);
+    appState.townCenters[tc.uuid] = tc;
 
     auto blocked = blocked_tile_translations(appState);
     ASSERT_EQ(blocked.size(), 16u); // 4x4 grid
@@ -158,12 +162,14 @@ TEST(GameLogicHelpersTest, BlockedTileTranslationsMultipleObjects)
 {
     AppState appState;
     PineTree tree;
+    tree.uuid = 1;
     tree.tile = glm::ivec2(1, 1);
-    appState.pineTrees.push_back(tree);
+    appState.pineTrees[tree.uuid] = tree;
 
     TownCenter tc;
+    tc.uuid = 2;
     tc.tile = glm::ivec2(10, 10);
-    appState.townCenters.push_back(tc);
+    appState.townCenters[tc.uuid] = tc;
 
     auto blocked = blocked_tile_translations(appState);
     EXPECT_EQ(blocked.size(), 17u); // 1 tree + 16 TC tiles

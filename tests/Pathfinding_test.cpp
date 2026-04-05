@@ -67,8 +67,9 @@ TEST_F(PathfindingTest, FindPathInvalidTargetReturnsEmpty)
 TEST_F(PathfindingTest, FindPathBlockedByTree)
 {
     PineTree tree;
+    tree.uuid = 1;
     tree.tile = glm::ivec2(5, 0);
-    appState.pineTrees.push_back(tree);
+    appState.pineTrees[tree.uuid] = tree;
 
     glm::vec2 start = tile_to_world(glm::ivec2(0, 0));
     glm::vec2 target = tile_to_world(glm::ivec2(10, 0));
@@ -82,8 +83,9 @@ TEST_F(PathfindingTest, FindPathBlockedByTree)
 TEST_F(PathfindingTest, FindPathBlockedByTownCenter)
 {
     TownCenter tc;
+    tc.uuid = 1;
     tc.tile = glm::ivec2(5, 0);
-    appState.townCenters.push_back(tc);
+    appState.townCenters[tc.uuid] = tc;
 
     glm::vec2 start = tile_to_world(glm::ivec2(0, 0));
     glm::vec2 target = tile_to_world(glm::ivec2(10, 0));
@@ -127,8 +129,9 @@ TEST_F(PathfindingTest, FindGroupDestinationsZeroReturnsEmpty)
 TEST_F(PathfindingTest, FindGroupDestinationsExcludesBlockedTiles)
 {
     PineTree tree;
+    tree.uuid = 2;
     tree.tile = glm::ivec2(11, 10);
-    appState.pineTrees.push_back(tree);
+    appState.pineTrees[tree.uuid] = tree;
 
     glm::ivec2 center(10, 10);
     auto destinations = find_group_destinations(appState, center, 10);
