@@ -284,8 +284,6 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     House& house = appState.houses.at(bId);
                     if (house.isGhostFoundation)
                     {
-                        printf("Ghost->Solid: buildingId=%llu tile=(%d,%d) queueSize=%zu\n",
-                            bId, house.tile.x, house.tile.y, v.operationQueue.size());
                         house.isGhostFoundation = false;
                         rebuild_blocked_tiles(engine, appState);
                     }
