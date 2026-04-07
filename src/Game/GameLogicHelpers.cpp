@@ -12,10 +12,17 @@ bool point_in_drag_rect(const glm::vec2& point, const SelectionState& selection)
     return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
 }
 
-bool villager_hit_test_screen(const glm::vec2& villagerScreenPosition, const glm::dvec2& cursorScreen)
+// Villager hitbox ellipse test in world space.
+// Ellipse center: (villagerWorldPos.x, villagerWorldPos.y - TILE_HALF_HEIGHT)
+// Ellipse radii: rx=22, ry=36 (matching the visual hitbox)
+bool villager_hit_test_screen(const glm::vec2& villagerWorldPos, const glm::dvec2& cursorScreen)
 {
-    const glm::vec2 delta = glm::vec2(static_cast<float>(cursorScreen.x), static_cast<float>(cursorScreen.y)) - villagerScreenPosition;
-    return glm::length(delta) <= CLICK_SELECT_RADIUS;
+    constexpr float HITBOX_RX = 22.0f;
+    constexpr float HITBOX_RY = 36.0f;
+    const glm::vec2 cursorWorld = screen_to_world(cursorScreen);
+    const glm::vec2 ellipseCenter = villagerWorldPos + glm::vec2(5.0f, 6.0f);
+    const glm::vec2 delta = cursorWorld - ellipseCenter;
+    return (delta.x * delta.x) / (HITBOX_RX * HITBOX_RX) + (delta.y * delta.y) / (HITBOX_RY * HITBOX_RY) <= 1.0f;
 }
 
 bool tree_hit_test_screen(const PineTree& tree, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)

@@ -3,6 +3,7 @@
 #include "src/Math/CoordinateSystem.h"
 #include "src/Core/Types.h"
 #include "src/Core/Constants.h"
+#include "src/Core/Globals.h"
 
 #include <glm/glm.hpp>
 
@@ -42,25 +43,51 @@ TEST(GameLogicHelpersTest, PointInPolygonEmpty)
     EXPECT_FALSE(point_in_polygon({5.0f, 5.0f}, empty));
 }
 
-TEST(GameLogicHelpersTest, VillagerHitTestScreenInsideRadius)
+// Helper to set up camera globals for screen_to_world
+class VillagerHitTestFixture : public ::testing::Test {
+protected:
+    void SetUp() override {
+        // Set known camera/screen values so screen_to_world gives predictable results:
+        // screen_to_world: worldX = cameraX + (screenX - SCR_WIDTH/2) / zoom
+        //                  worldY = cameraY + (SCR_HEIGHT/2 - screenY) / zoom
+        cameraX = 0.0f;
+        cameraY = 0.0f;
+        zoom = 1.0f;
+        SCR_WIDTH = 800;
+        SCR_HEIGHT = 600;
+    }
+};
+
+TEST_F(VillagerHitTestFixture, VillagerHitTestInsideEllipse)
 {
-    glm::vec2 villagerScreen(100.0f, 100.0f);
-    glm::dvec2 cursor(100.0f, 100.0f);
-    EXPECT_TRUE(villager_hit_test_screen(villagerScreen, cursor));
+    // Villager at world origin (0, 0)
+    // Ellipse center: (0 + 5, 0 + 6) = (5, 6)
+    // Hitbox: rx=22, ry=36
+    // Cursor at screen center (400, 300) -> world (0, 0), then shifted by (+5, +6)
+    // Point (5, 6) is inside ellipse centered at (5, 6) -> should be INSIDE
+    glm::vec2 villagerWorld(0.0f, 0.0f);
+    glm::dvec2 cursorScreen(400.0, 300.0); // maps to world (0, 0), ellipse at (5, 6)
+    EXPECT_TRUE(villager_hit_test_screen(villagerWorld, cursorScreen));
 }
 
-TEST(GameLogicHelpersTest, VillagerHitTestScreenOutsideRadius)
+TEST_F(VillagerHitTestFixture, VillagerHitTestOutsideEllipse)
 {
-    glm::vec2 villagerScreen(100.0f, 100.0f);
-    glm::dvec2 cursor(200.0f, 100.0f);
-    EXPECT_FALSE(villager_hit_test_screen(villagerScreen, cursor));
+    // Villager at world origin
+    // Cursor far away at screen (600, 450) -> world (200, -150), ellipse center at (5, 6)
+    // Distance from ellipse center is huge -> should be OUTSIDE
+    glm::vec2 villagerWorld(0.0f, 0.0f);
+    glm::dvec2 cursorScreen(600.0, 450.0);
+    EXPECT_FALSE(villager_hit_test_screen(villagerWorld, cursorScreen));
 }
 
-TEST(GameLogicHelpersTest, VillagerHitTestScreenOnBoundary)
+TEST_F(VillagerHitTestFixture, VillagerHitTestOnEllipseBoundary)
 {
-    glm::vec2 villagerScreen(0.0f, 0.0f);
-    glm::dvec2 cursor(CLICK_SELECT_RADIUS, 0.0f);
-    EXPECT_TRUE(villager_hit_test_screen(villagerScreen, cursor));
+    // Villager at world origin -> ellipse center = (5, 6)
+    // Point on boundary with delta = (22, 0) -> cursor world = (5+22, 6+0) = (27, 6)
+    // screen_to_world: world(27, 6) -> screenX = 27 + 400 = 427, screenY = 300 - 6 = 294
+    glm::vec2 villagerWorld(0.0f, 0.0f);
+    glm::dvec2 cursorBoundary(427.0, 294.0); // world (27, 6)
+    EXPECT_TRUE(villager_hit_test_screen(villagerWorld, cursorBoundary));
 }
 
 TEST(GameLogicHelpersTest, GetTownCenterPolygonReturnsSixVertices)

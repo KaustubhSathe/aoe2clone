@@ -443,6 +443,28 @@ int main()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
 
+    // Villager hitbox ellipse (tall/narrow to match villager sprite proportions)
+    // Sprite is 72x72 centered at (v.x, v.y - 24), so height=72, width=72
+    // Hitbox should cover head to feet: rx=22 (half of sprite half-width 36), ry=36 (half of sprite height 72)
+    std::vector<float> hitboxCircle;
+    constexpr int hitboxSegments = 32;
+    constexpr float hitboxRadiusX = 22.0f;
+    constexpr float hitboxRadiusY = 36.0f;
+    hitboxCircle.reserve(hitboxSegments * 2);
+    for (int i = 0; i < hitboxSegments; i++)
+    {
+        const float angle = (static_cast<float>(i) / static_cast<float>(hitboxSegments)) * 2.0f * 3.14159265f;
+        hitboxCircle.push_back(std::cos(angle) * hitboxRadiusX);
+        hitboxCircle.push_back(std::sin(angle) * hitboxRadiusY);
+    }
+    glGenVertexArrays(1, &engine.gpu.hitboxVAO);
+    glGenBuffers(1, &engine.gpu.hitboxVBO);
+    glBindVertexArray(engine.gpu.hitboxVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.hitboxVBO);
+    glBufferData(GL_ARRAY_BUFFER, hitboxCircle.size() * sizeof(float), hitboxCircle.data(), GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
+
     // Cache uniform locations for fast access inside the render loop.
     // glGetUniformLocation is slow — do it once here rather than every frame.
     engine.gpu.tileColorLoc = glGetUniformLocation(engine.gpu.tileShaderProgram, "uColor");

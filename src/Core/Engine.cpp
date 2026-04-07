@@ -464,8 +464,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         for (auto& [uuid, v] : gAppState->villagers)
                         {
                             if (v.isGarrisoned) continue;
-                            const glm::vec2 vsp = world_to_screen(v.position);
-                            if (villager_hit_test_screen(vsp, gAppState->cursorScreen))
+                            if (villager_hit_test_screen(v.position, gAppState->cursorScreen))
                             {
                                 v.selected = true;
                                 break; // Select only one villager on a single click

@@ -45,6 +45,8 @@ struct GPUState {
     GLuint selectionVBO = 0;
     GLuint rectVAO = 0;
     GLuint rectVBO = 0;
+    GLuint hitboxVAO = 0;
+    GLuint hitboxVBO = 0;
     
     GLuint pineBoundsVAO = 0;
     GLuint pineBoundsVBO = 0;
