@@ -299,7 +299,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 {
                     // Per-villager timer for builder animation
                     v.builderAnimTimer += deltaTime;
-                    const float frameTime = 1.0f / WALK_ANIMATION_FPS;
+                    const float frameTime = 1.0f / BUILD_ANIMATION_FPS;
                     while (v.builderAnimTimer >= frameTime)
                     {
                         v.builderAnimTimer -= frameTime;

@@ -40,9 +40,9 @@ enum class BuildableBuilding
 struct QueuedOperation
 {
     OperationType type;
-    glm::vec2 targetPosition; // For WALK
-    EntityId buildingId = 0; // For BUILD - EntityId of target house (0 if not yet created)
-    glm::ivec2 targetTile; // For BUILD - tile position of building
+    glm::vec2 targetPosition;                                 // For WALK
+    EntityId buildingId = 0;                                  // For BUILD - EntityId of target house (0 if not yet created)
+    glm::ivec2 targetTile;                                    // For BUILD - tile position of building
     BuildableBuilding buildingType = BuildableBuilding::None; // For BUILD - type to create if buildingId == 0
 };
 
@@ -54,7 +54,7 @@ struct Villager
     glm::vec2 facingDirection = glm::vec2(1.0f, 0.0f);
     bool selected = false;
     bool moving = false;
-    float moveSpeed = 53.66563f * 0.8f * 1.7f * 1.0f;
+    float moveSpeed = 107.33126f * 0.5f * 0.8f * 1.7f;
     float walkAnimTimer = 0.0f;
     int walkFrameIndex = 0;
     std::vector<QueuedOperation> operationQueue; // Unified queue for walk/build operations
@@ -159,7 +159,7 @@ struct AppState
     SelectionState selection;
     glm::dvec2 cursorScreen = glm::dvec2(0.0);
     EntityId selectedTreeId = 0;
-    
+
     std::vector<bool> explored;
     std::vector<bool> visible;
     std::vector<float> tileVisibilities;
@@ -184,4 +184,3 @@ struct AppState
     glm::ivec2 pendingBuildTile = glm::ivec2(-1, -1);
     bool canBuildAtPendingTile = false;
 };
-
