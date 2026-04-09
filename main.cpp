@@ -44,7 +44,7 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
+    glfwSwapInterval(1);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -64,8 +64,11 @@ int main()
     gEngine = &engine;
     appState.explored.resize(GRID_SIZE * GRID_SIZE, false);
     appState.visible.resize(GRID_SIZE * GRID_SIZE, false);
+    appState.visibilitySourceCounts.resize(GRID_SIZE * GRID_SIZE, 0);
     appState.tileVisibilities.resize(GRID_SIZE * GRID_SIZE, 0.0f);
+    appState.baseMinimapPixels.resize(GRID_SIZE * GRID_SIZE, 0xFF000000);
     appState.minimapPixels.resize(GRID_SIZE * GRID_SIZE, 0xFF000000); // Opaque black background
+    appState.dirtyTileFlags.resize(GRID_SIZE * GRID_SIZE, 0);
 
     glGenTextures(1, &appState.minimapTexture);
     glBindTexture(GL_TEXTURE_2D, appState.minimapTexture);

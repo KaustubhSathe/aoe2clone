@@ -80,36 +80,144 @@ static std::vector<VisibleTileData> CalculateVisibleTiles(
     return visibleTiles;
 }
 
-static void MarkTilesVisibleInRadius(
-    std::vector<bool>& visible,
-    std::vector<bool>& explored,
-    int centerTX,
-    int centerTY,
-    int radius)
+static void AddDirtyTile(AppState& appState, int index)
 {
-    const int losRadiusSq = radius * radius;
+    if (index < 0 || index >= GRID_SIZE * GRID_SIZE || appState.dirtyTileFlags[index] != 0)
+    {
+        return;
+    }
 
+    appState.dirtyTileFlags[index] = 1;
+    appState.dirtyTiles.push_back(index);
+}
+
+static void ApplyVisionDelta(AppState& appState, const glm::ivec2& center, int radius, int delta)
+{
+    const int radiusSq = radius * radius;
     for (int dy = -radius; dy <= radius; ++dy)
     {
         for (int dx = -radius; dx <= radius; ++dx)
         {
-            if (dx * dx + dy * dy > losRadiusSq)
+            if (dx * dx + dy * dy > radiusSq)
             {
                 continue;
             }
 
-            const int tx = centerTX + dx;
-            const int ty = centerTY + dy;
+            const int tx = center.x + dx;
+            const int ty = center.y + dy;
             if (tx < 0 || tx >= GRID_SIZE || ty < 0 || ty >= GRID_SIZE)
             {
                 continue;
             }
 
             const int index = ty * GRID_SIZE + tx;
-            visible[index] = true;
-            explored[index] = true;
+            uint16_t& count = appState.visibilitySourceCounts[index];
+            if (delta > 0)
+            {
+                ++count;
+            }
+            else if (count > 0)
+            {
+                --count;
+            }
+
+            AddDirtyTile(appState, index);
         }
     }
+}
+
+static void SyncVisionSource(
+    AppState& appState,
+    EntityId entityId,
+    const std::optional<glm::ivec2>& currentCenter,
+    int radius)
+{
+    const auto previousIt = appState.visionSources.find(entityId);
+    const bool hadPrevious = previousIt != appState.visionSources.end();
+
+    if (hadPrevious &&
+        currentCenter.has_value() &&
+        previousIt->second.center == *currentCenter &&
+        previousIt->second.radius == radius)
+    {
+        return;
+    }
+
+    if (hadPrevious)
+    {
+        ApplyVisionDelta(appState, previousIt->second.center, previousIt->second.radius, -1);
+        appState.visionSources.erase(previousIt);
+    }
+
+    if (currentCenter.has_value())
+    {
+        ApplyVisionDelta(appState, *currentCenter, radius, 1);
+        appState.visionSources[entityId] = VisionSourceState{*currentCenter, radius};
+    }
+}
+
+static void UpdateFogOfWarCache(AppState& appState)
+{
+    for (const auto& [uuid, villager] : appState.villagers)
+    {
+        const std::optional<glm::ivec2> currentTile = villager.isGarrisoned
+            ? std::nullopt
+            : world_to_tile(villager.position);
+        SyncVisionSource(
+            appState,
+            uuid,
+            currentTile,
+            static_cast<int>(VILLAGER_LOS_RADIUS));
+    }
+
+    for (const auto& [uuid, townCenter] : appState.townCenters)
+    {
+        SyncVisionSource(
+            appState,
+            uuid,
+            glm::ivec2(townCenter.tile.x + 2, townCenter.tile.y + 2),
+            static_cast<int>(TOWN_CENTER_LOS_RADIUS));
+    }
+
+    for (auto it = appState.visionSources.begin(); it != appState.visionSources.end();)
+    {
+        const bool stillExists = appState.villagers.count(it->first) > 0 || appState.townCenters.count(it->first) > 0;
+        if (!stillExists)
+        {
+            ApplyVisionDelta(appState, it->second.center, it->second.radius, -1);
+            it = appState.visionSources.erase(it);
+        }
+        else
+        {
+            ++it;
+        }
+    }
+
+    for (const int index : appState.dirtyTiles)
+    {
+        appState.dirtyTileFlags[index] = 0;
+        const bool isVisible = appState.visibilitySourceCounts[index] > 0;
+        appState.visible[index] = isVisible;
+        if (isVisible)
+        {
+            appState.explored[index] = true;
+            appState.tileVisibilities[index] = 1.0f;
+            appState.baseMinimapPixels[index] = 0xFF00AA00;
+        }
+        else if (appState.explored[index])
+        {
+            appState.tileVisibilities[index] = 0.5f;
+            appState.baseMinimapPixels[index] = 0xFF003300;
+        }
+        else
+        {
+            appState.tileVisibilities[index] = 0.0f;
+            appState.baseMinimapPixels[index] = 0xFF000000;
+        }
+    }
+
+    appState.dirtyTiles.clear();
+    appState.minimapPixels = appState.baseMinimapPixels;
 }
 
 void UpdateSimulation(EngineState& engine, AppState& appState)
@@ -567,64 +675,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
             }
         }
 
-
-        // Update tile visibility based on LOS (fog of war)
-        // Step 1: Reset all visible tiles to false
-        for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
-        {
-            appState.visible[i] = false;
-        }
-
-        // Step 2: Mark tiles visible based on villager line of sight
-        for (const auto& [uuid, v] : appState.villagers)
-        {
-            if (v.isGarrisoned) continue;
-
-            const std::optional<glm::ivec2> vTile = world_to_tile(v.position);
-            if (!vTile.has_value())
-            {
-                continue;
-            }
-
-            MarkTilesVisibleInRadius(
-                appState.visible,
-                appState.explored,
-                vTile->x,
-                vTile->y,
-                static_cast<int>(VILLAGER_LOS_RADIUS));
-        }
-
-        // Step 3: Mark tiles visible based on town center line of sight
-        for (const auto& [uuid, tc] : appState.townCenters)
-        {
-            // The TC occupies a 4x4 footprint, so use the rounded footprint center.
-            MarkTilesVisibleInRadius(
-                appState.visible,
-                appState.explored,
-                tc.tile.x + 2,
-                tc.tile.y + 2,
-                static_cast<int>(TOWN_CENTER_LOS_RADIUS));
-        }
-
-        // Update tile visibility based on LOS
-        for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
-        {
-            if (appState.visible[i])
-            {
-                appState.tileVisibilities[i] = 1.0f;
-                appState.minimapPixels[i] = 0xFF00AA00; // Bright green (AABBGGRR)
-            }
-            else if (appState.explored[i])
-            {
-                appState.tileVisibilities[i] = 0.5f;
-                appState.minimapPixels[i] = 0xFF003300; // Dark green (AABBGGRR)
-            }
-            else
-            {
-                appState.tileVisibilities[i] = 0.0f;
-                appState.minimapPixels[i] = 0xFF000000; // Opaque black
-            }
-        }
+        UpdateFogOfWarCache(appState);
         
         // Draw trees onto minimap
         for (const auto& [uuid, tree] : appState.pineTrees)

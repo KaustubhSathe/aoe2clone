@@ -114,7 +114,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
     ```
   - **Expected gain: 10-50x reduction in sprite draw calls**
 
-- [ ] **4. Fog of War Cache** (10-20% improvement)
+- [x] **4. Fog of War Cache** (10-20% improvement)
   - **File:** `src/Core/GameLoop.cpp:474` - optimize visibility updates
   - Currently clears entire visibility array every frame:
     ```cpp

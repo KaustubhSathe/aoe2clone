@@ -131,6 +131,12 @@ struct FPSState
     static constexpr float UPDATE_INTERVAL = 0.25f;
 };
 
+struct VisionSourceState
+{
+    glm::ivec2 center = glm::ivec2(0);
+    int radius = 0;
+};
+
 enum class CursorMode
 {
     Normal,
@@ -162,8 +168,13 @@ struct AppState
 
     std::vector<bool> explored;
     std::vector<bool> visible;
+    std::vector<uint16_t> visibilitySourceCounts;
     std::vector<float> tileVisibilities;
+    std::vector<uint32_t> baseMinimapPixels;
     std::vector<uint32_t> minimapPixels;
+    std::vector<uint8_t> dirtyTileFlags;
+    std::vector<int> dirtyTiles;
+    std::unordered_map<EntityId, VisionSourceState> visionSources;
     GLuint minimapTexture = 0;
 
     int food = 200;
