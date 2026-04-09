@@ -131,6 +131,18 @@ struct FPSState
     static constexpr float UPDATE_INTERVAL = 0.25f;
 };
 
+struct PerformanceMetricsState
+{
+    float cpuFrameMs = 0.0f;
+    float averageCpuFrameMs = 0.0f;
+    int drawCallCount = 0;
+    int triangleCount = 0;
+    int visibleTileCount = 0;
+    int visibleBlockedTileCount = 0;
+    int visibleSpriteCount = 0;
+    int pathCacheEntries = 0;
+};
+
 struct VisionSourceState
 {
     glm::ivec2 center = glm::ivec2(0);
@@ -195,6 +207,7 @@ struct AppState
     float inGameTime = 0.0f;
     int currentAge = 1; // 1 = Dark Age
     FPSState fps;
+    PerformanceMetricsState performanceMetrics;
     CursorMode cursorMode = CursorMode::Normal;
     BuildableBuilding selectedBuilding = BuildableBuilding::None;
 

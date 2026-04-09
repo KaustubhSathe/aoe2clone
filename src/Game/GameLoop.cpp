@@ -40,6 +40,8 @@ namespace
 constexpr int MINIMAP_UPLOAD_INTERVAL_FRAMES = 4;
 }
 
+static void TrackDrawCall(PerformanceMetricsState& metrics, GLenum mode, GLsizei vertexCount, GLsizei instanceCount = 1);
+
 static bool IsTileTranslationVisible(
     const glm::vec2& translation,
     float viewLeft,
@@ -809,6 +811,10 @@ void RenderScene(EngineState& engine, AppState& appState)
 {
         const int selectionSegments = 32;
         const glm::vec2 spriteScale = glm::vec2(72.0f, 72.0f);
+        PerformanceMetricsState frameMetrics = {};
+        frameMetrics.cpuFrameMs = deltaTime * 1000.0f;
+        frameMetrics.averageCpuFrameMs = appState.fps.currentFPS > 0 ? 1000.0f / static_cast<float>(appState.fps.currentFPS) : 0.0f;
+        frameMetrics.pathCacheEntries = static_cast<int>(appState.pathfindingCache.size());
 
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
@@ -826,6 +832,7 @@ void RenderScene(EngineState& engine, AppState& appState)
 
         const std::vector<VisibleTileData> visibleTiles = CalculateVisibleTiles(cameraX, cameraY, zoom, engine.translations);
         const GLsizei visibleCount = static_cast<GLsizei>(visibleTiles.size());
+        frameMetrics.visibleTileCount = static_cast<int>(visibleTiles.size());
         std::vector<glm::vec2> visibleTranslations;
         std::vector<float> visibleVisibilities;
         visibleTranslations.reserve(visibleTiles.size());
@@ -850,6 +857,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         glUniform4f(engine.gpu.tileColorLoc, 0.2f, 0.6f, 0.2f, 1.0f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, visibleCount);
+        TrackDrawCall(frameMetrics, GL_TRIANGLES, 6, visibleCount);
 
         // Apply the same frustum rules to blocked overlays so off-screen blocked
         // tiles do not consume draw bandwidth.
@@ -870,6 +878,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     visibleBlockedTranslations.push_back(translation);
                 }
             }
+            frameMetrics.visibleBlockedTileCount = static_cast<int>(visibleBlockedTranslations.size());
 
             glBindVertexArray(engine.gpu.blockedTileVAO);
             glUniform4f(engine.gpu.tileColorLoc, 0.09f, 0.18f, 0.09f, 1.0f);
@@ -878,6 +887,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.blockedInstanceVBO);
                 glBufferSubData(GL_ARRAY_BUFFER, 0, visibleBlockedTranslations.size() * sizeof(glm::vec2), visibleBlockedTranslations.data());
                 glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(visibleBlockedTranslations.size()));
+                TrackDrawCall(frameMetrics, GL_TRIANGLES, 6, static_cast<GLsizei>(visibleBlockedTranslations.size()));
             }
         }
 
@@ -885,6 +895,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         glBindVertexArray(engine.gpu.outlineVAO);
         glUniform4f(engine.gpu.tileColorLoc, 0.1f, 0.4f, 0.1f, 1.0f);
         glDrawArraysInstanced(GL_LINE_LOOP, 0, 4, visibleCount);
+        TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4, visibleCount);
 
         // ---------------------------------------------------------------------
         // Render Sprites (Depth Sorted)
@@ -994,6 +1005,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         std::sort(renderQueue.begin(), renderQueue.end(), [](const ResolvedSprite& a, const ResolvedSprite& b) {
             return a.sortY > b.sortY;
         });
+        frameMetrics.visibleSpriteCount = static_cast<int>(renderQueue.size());
 
         // --- Phase 1: Draw Sprites ---
         // Keep the existing depth order, but collapse contiguous same-texture runs
@@ -1022,6 +1034,7 @@ void RenderScene(EngineState& engine, AppState& appState)
             glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.spriteInstanceVBO);
             glBufferSubData(GL_ARRAY_BUFFER, 0, spriteBatch.size() * sizeof(SpriteInstanceData), spriteBatch.data());
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(spriteBatch.size()));
+            TrackDrawCall(frameMetrics, GL_TRIANGLES, 6, static_cast<GLsizei>(spriteBatch.size()));
 
             batchStart = batchEnd;
         }
@@ -1040,11 +1053,13 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.1f, 0.1f, 1.0f);
                 glBindVertexArray(engine.gpu.pineBoundsVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, 4);
+                TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
 
                 glUniform2f(engine.gpu.overlayOffsetLoc, pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y - 4.0f);
                 glUniform4f(engine.gpu.overlayColorLoc, 0.95f, 0.18f, 0.18f, 1.0f);
                 glBindVertexArray(engine.gpu.selectionVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+                TrackDrawCall(frameMetrics, GL_LINE_LOOP, selectionSegments);
             }
         }
         
@@ -1071,6 +1086,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
                 glBindVertexArray(engine.gpu.rectVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, 6);
+                TrackDrawCall(frameMetrics, GL_LINE_LOOP, 6);
                 
                 if (tc.selected)
                 {
@@ -1083,6 +1099,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.0f, 0.0f, 1.0f); // Red
                     glBindVertexArray(engine.gpu.tileVAO);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
+                    TrackDrawCall(frameMetrics, GL_TRIANGLES, 6);
                 }
             }
         }
@@ -1113,6 +1130,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
                     glBindVertexArray(engine.gpu.rectVAO);
                     glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
                 }
             }
         }
@@ -1144,6 +1162,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.0f, 0.0f, 0.4f); // Red
             glBindVertexArray(engine.gpu.rectVAO);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
         }
 
         for (const auto& [uuid, v] : appState.villagers)
@@ -1154,6 +1173,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                 glUniform4f(engine.gpu.overlayColorLoc, 0.1f, 1.0f, 0.1f, 1.0f);
                 glBindVertexArray(engine.gpu.selectionVAO);
                 glDrawArrays(GL_LINE_LOOP, 0, selectionSegments);
+                TrackDrawCall(frameMetrics, GL_LINE_LOOP, selectionSegments);
             }
 
             // Render build progress bar for building villagers
@@ -1181,6 +1201,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform4f(engine.gpu.overlayColorLoc, 0.3f, 0.3f, 0.3f, 0.8f);
                     glBindVertexArray(engine.gpu.rectVAO);
                     glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
 
                     // Progress bar fill
                     float progressWidth = barWidth * 2.0f * house.buildProgress;
@@ -1196,6 +1217,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                         glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
                         glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 0.8f, 0.0f, 1.0f);
                         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+                        TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
                     }
                 }
                 }
@@ -1247,6 +1269,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform2f(engine.gpu.overlayOffsetLoc, 0.0f, 0.0f);
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 0.3f, 0.55f);
                     glDrawArrays(GL_LINE_STRIP, 0, static_cast<GLsizei>(lineVerts.size() / 2));
+                    TrackDrawCall(frameMetrics, GL_LINE_STRIP, static_cast<GLsizei>(lineVerts.size() / 2));
                 }
 
                 // Draw only the final destination as yellow dot
@@ -1275,6 +1298,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform2f(engine.gpu.overlayOffsetLoc, finalDestination.x, finalDestination.y);
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 0.0f, 1.0f);
                     glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
                 }
             }
             // Render waypoints for queued builds (when villager is still building first house)
@@ -1338,6 +1362,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform2f(engine.gpu.overlayOffsetLoc, 0.0f, 0.0f);
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.55f); // Yellow like normal waypoints
                     glDrawArrays(GL_LINE_STRIP, 0, 2);
+                    TrackDrawCall(frameMetrics, GL_LINE_STRIP, 2);
 
                     // Draw a diamond marker at the queued build position
                     static unsigned int queuedWpVAO = 0;
@@ -1364,6 +1389,7 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glUniform2f(engine.gpu.overlayOffsetLoc, queuedBuildPos.x, queuedBuildPos.y);
                     glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.85f, 0.1f, 0.75f); // Yellow like normal waypoints
                     glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
                 }
             }
         }
@@ -1387,9 +1413,13 @@ void RenderScene(EngineState& engine, AppState& appState)
             glBindVertexArray(engine.gpu.rectVAO);
             glUniform4f(engine.gpu.overlayColorLoc, 0.2f, 0.8f, 0.3f, 0.18f);
             glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+            TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
             glUniform4f(engine.gpu.overlayColorLoc, 0.4f, 1.0f, 0.5f, 1.0f);
             glDrawArrays(GL_LINE_LOOP, 0, 4);
+            TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
         }
+
+        appState.performanceMetrics = frameMetrics;
 
 }
 
@@ -1407,6 +1437,28 @@ static void UpdateFPS(FPSState& fps, float deltaTime)
         const float avgDelta = fps.accumulatedTime / FPSState::SAMPLE_COUNT;
         fps.currentFPS = static_cast<int>(0.5f + (1.0f / avgDelta));
     }
+}
+
+static void TrackDrawCall(PerformanceMetricsState& metrics, GLenum mode, GLsizei vertexCount, GLsizei instanceCount)
+{
+    ++metrics.drawCallCount;
+
+    if (instanceCount <= 0)
+    {
+        return;
+    }
+
+    int trianglesPerInstance = 0;
+    if (mode == GL_TRIANGLES)
+    {
+        trianglesPerInstance = vertexCount / 3;
+    }
+    else if (mode == GL_TRIANGLE_FAN && vertexCount >= 3)
+    {
+        trianglesPerInstance = vertexCount - 2;
+    }
+
+    metrics.triangleCount += trianglesPerInstance * instanceCount;
 }
 
 void RenderUI(EngineState& engine, AppState& appState)
@@ -1481,6 +1533,21 @@ void RenderUI(EngineState& engine, AppState& appState)
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + gap);
         ImGui::Text("%s", fpsStr);
 
+        ImGui::End();
+
+        ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x + viewport->Size.x - 190.0f, viewport->Pos.y + 42.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.75f);
+        ImGuiWindowFlags metricsFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_AlwaysAutoResize;
+        ImGui::Begin("PerformanceMetrics", nullptr, metricsFlags);
+        ImGui::Text("CPU Frame Time: %.2f ms", appState.performanceMetrics.cpuFrameMs);
+        ImGui::Text("Average Frame Time: %.2f ms", appState.performanceMetrics.averageCpuFrameMs);
+        ImGui::Text("Draw Call Count: %d", appState.performanceMetrics.drawCallCount);
+        ImGui::Text("Triangle Count: %d", appState.performanceMetrics.triangleCount);
+        ImGui::Text("Visible Terrain Tiles: %d", appState.performanceMetrics.visibleTileCount);
+        ImGui::Text("Visible Blocked Tiles: %d", appState.performanceMetrics.visibleBlockedTileCount);
+        ImGui::Text("Visible Sprites: %d", appState.performanceMetrics.visibleSpriteCount);
+        ImGui::Text("Path Cache Entries: %d", appState.performanceMetrics.pathCacheEntries);
         ImGui::End();
 
         // ---------------------------------------------------------------------
