@@ -44,7 +44,7 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);  // Enable VSync (1 = sync to refresh rate, 0 = unlimited)
+    glfwSwapInterval(0);  // Enable VSync (1 = sync to refresh rate, 0 = unlimited)
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);

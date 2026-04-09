@@ -743,8 +743,10 @@ void RenderScene(EngineState& engine, AppState& appState)
         const float worldBottom = cameraY - halfH;
         const float hw = static_cast<float>(TILE_HALF_WIDTH);
         const float hh = static_cast<float>(TILE_HALF_HEIGHT);
-        int minTY = std::max(0, static_cast<int>(std::floor((worldTop / hh - cameraX / hw) / 2.0f) - 1));
-        int maxTY = std::min(GRID_SIZE - 1, static_cast<int>(std::ceil((worldBottom / hh - cameraX / hw) / 2.0f) + 1));
+        const float tyTop = (-worldTop / hh - cameraX / hw) / 2.0f;
+        const float tyBottom = (-worldBottom / hh - cameraX / hw) / 2.0f;
+        int minTY = std::max(0, static_cast<int>(std::floor(std::min(tyTop, tyBottom) - 1.0f)));
+        int maxTY = std::min(GRID_SIZE - 1, static_cast<int>(std::ceil(std::max(tyTop, tyBottom) + 1.0f)));
 
         WriteDebugLog("FC: camera=(" + std::to_string(cameraX) + "," + std::to_string(cameraY) + ") zoom=" + std::to_string(zoom)
             + " halfW=" + std::to_string(halfW) + " halfH=" + std::to_string(halfH)
