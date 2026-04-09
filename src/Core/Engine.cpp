@@ -976,12 +976,10 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
     {
-        std::cout << "T key callback fired! Current mode: " << (gAppState->cursorMode == CursorMode::Garrison ? "Garrison" : "Normal") << std::endl;
         if (gAppState->cursorMode == CursorMode::Garrison)
         {
             gAppState->cursorMode = CursorMode::Normal;
             glfwSetCursor(window, nullptr);
-            std::cout << "Cursor set to nullptr (Normal mode)" << std::endl;
         }
         else
         {
@@ -989,11 +987,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             if (gGarrisonCursor != nullptr)
             {
                 glfwSetCursor(window, gGarrisonCursor);
-                std::cout << "Cursor set to garrison cursor" << std::endl;
-            }
-            else
-            {
-                std::cout << "ERROR: gGarrisonCursor is null!" << std::endl;
             }
         }
     }
@@ -1002,19 +995,16 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     {
         if (gAppState->cursorMode == CursorMode::Garrison)
         {
-            std::cout << "Escape - exiting garrison mode" << std::endl;
             gAppState->cursorMode = CursorMode::Normal;
             glfwSetCursor(window, nullptr);
         }
         else if (gAppState->cursorMode == CursorMode::BuildEco)
         {
-            std::cout << "Escape - exiting build eco mode" << std::endl;
             gAppState->cursorMode = CursorMode::Normal;
             gAppState->selectedBuilding = BuildableBuilding::None;
         }
         else if (gAppState->cursorMode == CursorMode::BuildMil)
         {
-            std::cout << "Escape - exiting build mil mode" << std::endl;
             gAppState->cursorMode = CursorMode::Normal;
             gAppState->selectedBuilding = BuildableBuilding::None;
         }
@@ -1029,13 +1019,11 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     {
         if (gAppState->cursorMode == CursorMode::Normal)
         {
-            std::cout << "Q key pressed - entering build eco mode" << std::endl;
             gAppState->cursorMode = CursorMode::BuildEco;
             gAppState->selectedBuilding = BuildableBuilding::None;
         }
         else if (gAppState->cursorMode == CursorMode::BuildEco)
         {
-            std::cout << "Q key pressed - selecting house" << std::endl;
             gAppState->selectedBuilding = BuildableBuilding::House;
         }
     }
@@ -1044,7 +1032,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
     {
         if (gAppState->cursorMode == CursorMode::Normal)
         {
-            std::cout << "W key pressed - entering build mil mode" << std::endl;
             gAppState->cursorMode = CursorMode::BuildMil;
             gAppState->selectedBuilding = BuildableBuilding::None;
         }
@@ -1052,7 +1039,6 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
     if (key == GLFW_KEY_G && action == GLFW_PRESS)
     {
-        std::cout << "G key pressed - stopping selected villagers" << std::endl;
         for (auto& [uuid, v] : gAppState->villagers)
         {
             if (v.selected)

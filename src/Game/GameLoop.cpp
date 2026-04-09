@@ -694,7 +694,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         glUniformMatrix4fv(engine.gpu.spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(engine.gpu.spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glBindVertexArray(engine.gpu.spriteVAO);
-        
+
         for (const RenderPayload& payload : renderQueue)
         {
             if (payload.type == 0) // Pine Tree

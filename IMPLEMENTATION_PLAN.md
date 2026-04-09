@@ -40,3 +40,140 @@ The next steps focus on turning this technical foundation into a playable RTS ga
 ### Milestone 4: Buildings
 - [x] Build a house when user presses the house button in economic building UI, it should be built at the location of the cursor. And before placing the house it should check if the tile is empty it should be 2x2 tiles, and it should not overlap with any other building or unit. If it is buildable then the 2x2 tile should be highlighted in green color, otherwise it should be highlighted in red color. And when the user right clicks on the tile then the house should be built at the location of the cursor. And the cost of the house is 25 wood. Also for villager work action use the sprites in u_vil_male_builder_taskA_x1.sld folder and use the same logic as its used for walking sprites. The build time for house is 25s ingame time (Real time will be 25/1.7 seconds). Also show a small loading bar above the villager which indicates the build progress. And for house sprite use the pngs in assets/house folder  inorder image_1x1_0.png ---> indicates 0% progress, image_1x1_1.png ---> indicates 33% progress, image_1x1_2.png ---> indicates 66% progress, image_1x1_3.png ---> indicates 100% progress. So update the sprites according to the time progress.
 - [ ] Show house info in selection info column. Store all these info in House struct, In Age I house has Health 550, Melee Armor: -2, Pierce Armor: 7, Build Time: 25s, Cost: 25 wood, Population: 5. Display these in Selection Info column.
+
+### Milestone 5: Performance Optimizations
+
+**Target:** Improve from ~25 FPS to stable 60 FPS on typical hardware.
+
+#### Bottlenecks Identified (Current State)
+
+| Issue | Severity | Location | Impact |
+|-------|----------|----------|--------|
+| No Frustum Culling | Critical | `src/Core/GameLoop.cpp:615-633` | All 40,000 tiles rendered every frame regardless of camera view |
+| Individual Sprite Draw Calls | High | `src/Core/GameLoop.cpp:698-797` | 1,600+ draw calls for trees alone (CPU bottleneck) |
+| No VSync | Medium | `src/Core/main.cpp:455` | Unbounded frame rate, excessive GPU/CPU load |
+| Per-Frame Fog of War Updates | Medium | `src/Core/GameLoop.cpp:474-548` | 40,000 tile visibility recalculated every frame |
+| 64MB Minimap Upload | Medium | `src/Core/GameLoop.cpp:595` | Large GPU stall every frame |
+| O(n²) Collision Detection | Low | `src/Core/GameLoop.cpp:338-357` | Scales poorly with unit count (currently ~20 units, acceptable) |
+
+---
+
+#### Proposed Optimizations
+
+- [x] **1. Enable VSync / Frame Rate Limit** (Quick Win - 1 line)
+  - **File:** `src/Core/main.cpp` - after `glfwCreateWindow()`
+  - Add `glfwSwapInterval(1)` to sync to display refresh rate. This provides:
+    - Stable frame rate (matches monitor refresh)
+    - Reduced power consumption
+    - Less GPU/CPU strain
+  - Optional: Add configurable frame rate cap:
+    ```cpp
+    constexpr float TARGET_FPS = 60.0f;
+    constexpr float FRAME_TIME = 1.0f / TARGET_FPS;
+    // In game loop:
+    if (deltaTime < FRAME_TIME) {
+        std::this_thread::sleep_for(std::chrono::duration<float>(FRAME_TIME - deltaTime));
+    }
+    ```
+
+- [ ] **2. Frustum Culling for Tiles** (Biggest Win - 3-5x improvement)
+  - **File:** `src/Core/GameLoop.cpp` - in `RenderScene()` before line 615
+  - Currently all 40,000 tiles are processed every frame. Only tiles visible by the camera should be drawn.
+  - Implementation approach:
+    - Calculate visible tile range from camera position and zoom level
+    - Only upload instance data for visible tiles to GPU
+    - Use instanced rendering with filtered visible tiles
+    ```cpp
+    // Calculate visible tile bounds
+    int minTileX = std::max(0, static_cast<int>(cameraTileX - visibleRange));
+    int maxTileX = std::min(GRID_SIZE - 1, static_cast<int>(cameraTileX + visibleRange));
+    int minTileY = std::max(0, static_cast<int>(cameraTileY - visibleRange));
+    int maxTileY = std::min(GRID_SIZE - 1, static_cast<int>(cameraTileY + visibleRange));
+    // Build visible tile list and render only those
+    ```
+  - **Expected gain: 3-5x improvement when zoomed in, minimal change when zoomed out**
+
+- [ ] **3. Sprite Batching with Instanced Rendering** (2-3x improvement)
+  - **File:** `src/Core/GameLoop.cpp` - restructure sprite rendering section
+  - Currently each entity (tree, villager, building) is a separate draw call:
+    ```cpp
+    for (const RenderPayload& payload : renderQueue) {
+        glBindTexture(GL_TEXTURE_2D, textureId);
+        glDrawArrays(GL_TRIANGLES, 0, 6);  // Individual call!
+    }
+    ```
+  - Implementation approach:
+    - Group entities by texture atlas
+    - Use instanced rendering with per-instance position/size data
+    - Reduce from N draw calls to ~10-20 (one per texture)
+    ```cpp
+    // Group entities by texture
+    std::unordered_map<GLuint, std::vector<InstanceData>> batches;
+    // ...
+    for (auto& [texId, batch] : batches) {
+        glBindTexture(GL_TEXTURE_2D, texId);
+        glBindBuffer(GL_ARRAY_BUFFER, batchVBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, batch.size() * sizeof(InstanceData), batch.data());
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, batch.size());
+    }
+    ```
+  - **Expected gain: 10-50x reduction in sprite draw calls**
+
+- [ ] **4. Fog of War Cache** (10-20% improvement)
+  - **File:** `src/Core/GameLoop.cpp:474` - optimize visibility updates
+  - Currently clears entire visibility array every frame:
+    ```cpp
+    std::fill(appState.visible.begin(), appState.visible.end(), false);
+    ```
+  - Implementation approach:
+    - Track dirty tiles (tiles whose visibility may have changed)
+    - Only update fog of war for tiles affected by unit movement
+    - Use spatial hash to quickly identify affected tiles
+    ```cpp
+    // Track dirty tiles when villagers move
+    static std::unordered_set<int> dirtyTiles;
+    // When villager moves: dirtyTiles.insert(affectedTileIds);
+    // Update only dirty tiles, then clear the set
+    ```
+  - **Expected gain: 10-20% CPU time reduction**
+
+- [ ] **5. Minimap Update Throttling** (5-10% improvement)
+  - **File:** `src/Core/GameLoop.cpp:595`
+  - Update minimap texture every 4-8 frames instead of every frame:
+    ```cpp
+    static int frameCounter = 0;
+    if (++frameCounter % 4 == 0) {
+        glTexSubImage2D(...);
+    }
+    ```
+  - **Expected gain: Reduce GPU stalls, 5-10% improvement**
+
+- [ ] **6. Pathfinding Cache** (for frequent destinations)
+  - **File:** `src/Game/Pathfinding.cpp`
+  - Cache pathfinding results for frequently requested destinations.
+
+---
+
+#### Priority Order for Implementation
+
+| Priority | Task | Effort | Expected Impact |
+|----------|------|--------|-----------------|
+| 1 | VSync / Frame Limit | 5 min | Stable 60 FPS |
+| 2 | Frustum Culling | Medium | 3-5x improvement |
+| 3 | Sprite Batching | Medium | 2-3x improvement |
+| 4 | Fog of War Cache | Low | 10-20% improvement |
+| 5 | Minimap Throttle | 15 min | 5-10% improvement |
+| 6 | Pathfinding Cache | Medium | Marginal (if any) |
+
+---
+
+#### Profiling Infrastructure (Optional but Recommended)
+
+Add debug overlay with performance metrics:
+- FPS counter (already exists)
+- Draw call count
+- Triangle count
+- GPU frame time (using `glQueryCounter`)
+- CPU frame time
+
+**Files to modify:** `src/Core/GameLoop.cpp` - add debug stats overlay

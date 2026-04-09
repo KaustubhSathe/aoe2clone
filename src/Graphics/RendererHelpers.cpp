@@ -31,7 +31,6 @@ GLuint compile_shader(GLenum type, const char* source)
         glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
         std::string log(static_cast<size_t>(std::max(logLength, 1)), '\0');
         glGetShaderInfoLog(shader, logLength, nullptr, log.data());
-        std::cerr << "Shader compilation failed:\n" << log << '\n';
     }
 
     return shader;
@@ -55,7 +54,6 @@ GLuint create_program(const char* vertexSource, const char* fragmentSource)
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
         std::string log(static_cast<size_t>(std::max(logLength, 1)), '\0');
         glGetProgramInfoLog(program, logLength, nullptr, log.data());
-        std::cerr << "Program link failed:\n" << log << '\n';
     }
 
     glDeleteShader(vertexShader);
@@ -71,7 +69,6 @@ std::string read_file_to_string(const std::filesystem::path& path)
     std::ifstream file(path);
     if (!file.is_open())
     {
-        std::cerr << "Failed to open shader file: " << path.string() << '\n';
         return "";
     }
     std::stringstream buffer;
@@ -85,7 +82,6 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
     std::string fragmentSource = read_file_to_string(fragmentPath);
     if (vertexSource.empty() || fragmentSource.empty())
     {
-        std::cerr << "Failed to load shaders: " << vertexPath.string() << " / " << fragmentPath.string() << '\n';
         return 0;
     }
     return create_program(vertexSource.c_str(), fragmentSource.c_str());
@@ -103,7 +99,6 @@ bool load_texture_from_png(
         IID_PPV_ARGS(&imagingFactory));
     if (FAILED(factoryResult))
     {
-        std::cerr << "Failed to create WIC imaging factory\n";
         return false;
     }
 
@@ -119,7 +114,6 @@ bool load_texture_from_png(
         &decoder);
     if (FAILED(decoderResult))
     {
-        std::cerr << "Failed to decode texture: " << imagePath.string() << '\n';
         safe_release(imagingFactory);
         return false;
     }
@@ -129,7 +123,6 @@ bool load_texture_from_png(
     {
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to read PNG frame: " << imagePath.string() << '\n';
         return false;
     }
 
@@ -139,7 +132,6 @@ bool load_texture_from_png(
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to create WIC format converter\n";
         return false;
     }
 
@@ -156,7 +148,6 @@ bool load_texture_from_png(
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to convert PNG format: " << imagePath.string() << '\n';
         return false;
     }
 
@@ -176,7 +167,6 @@ bool load_texture_from_png(
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to copy PNG pixels: " << imagePath.string() << '\n';
         return false;
     }
 
@@ -239,7 +229,6 @@ std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& asse
         IID_PPV_ARGS(&imagingFactory));
     if (FAILED(factoryResult))
     {
-        std::cerr << "Failed to initialize WIC imaging factory\n";
         return {};
     }
 
@@ -342,7 +331,6 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         IID_PPV_ARGS(&imagingFactory));
     if (FAILED(factoryResult))
     {
-        std::cerr << "Failed to create WIC imaging factory for cursor\n";
         return nullptr;
     }
 
@@ -358,7 +346,6 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         &decoder);
     if (FAILED(decoderResult))
     {
-        std::cerr << "Failed to decode texture for cursor: " << imagePath.string() << '\n';
         safe_release(imagingFactory);
         return nullptr;
     }
@@ -368,7 +355,6 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
     {
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to read PNG frame for cursor: " << imagePath.string() << '\n';
         return nullptr;
     }
 
@@ -378,7 +364,6 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to create WIC format converter for cursor\n";
         return nullptr;
     }
 
@@ -395,15 +380,12 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to initialize WIC converter for cursor\n";
         return nullptr;
     }
 
     UINT width = 0;
     UINT height = 0;
     converter->GetSize(&width, &height);
-
-    std::cout << "Cursor image loaded: " << imagePath.string() << " - dimensions: " << width << "x" << height << std::endl;
 
     std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
     result = converter->CopyPixels(
@@ -417,11 +399,8 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         safe_release(frame);
         safe_release(decoder);
         safe_release(imagingFactory);
-        std::cerr << "Failed to copy PNG pixels for cursor: " << imagePath.string() << '\n';
         return nullptr;
     }
-
-    std::cout << "Cursor pixels copied, size: " << pixels.size() << " bytes" << std::endl;
 
     safe_release(converter);
     safe_release(frame);
@@ -435,22 +414,16 @@ GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int x
         std::swap(pixels[i], pixels[i + 2]);  // Swap R and B
     }
 
-    std::cout << "Cursor pixels converted from BGRA to RGBA" << std::endl;
-
     GLFWimage GLFWimage;
     GLFWimage.width = static_cast<int>(width);
     GLFWimage.height = static_cast<int>(height);
     GLFWimage.pixels = pixels.data();
 
-    std::cout << "Calling glfwCreateCursor with " << width << "x" << height << " image, hotspot: (" << xhot << "," << yhot << ")" << std::endl;
     GLFWcursor* cursor = glfwCreateCursor(&GLFWimage, xhot, yhot);
     if (cursor == nullptr)
     {
-        DWORD error = GetLastError();
-        std::cerr << "Failed to create GLFW cursor from: " << imagePath.string() << " - Windows error code: " << error << '\n';
         return nullptr;
     }
 
-    std::cout << "Successfully created cursor from: " << imagePath.string() << " (" << width << "x" << height << ")" << std::endl;
     return cursor;
 }
