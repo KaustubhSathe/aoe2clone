@@ -4,8 +4,9 @@
 #define NOMINMAX
 #include <Windows.h>
 #include <wincodec.h>
-#include <iostream>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 
 template <typename T>
 void safe_release(T*& pointer)
@@ -27,10 +28,8 @@ GLuint compile_shader(GLenum type, const char* source)
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (success == GL_FALSE)
     {
-        GLint logLength = 0;
-        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
-        std::string log(static_cast<size_t>(std::max(logLength, 1)), '\0');
-        glGetShaderInfoLog(shader, logLength, nullptr, log.data());
+        glDeleteShader(shader);
+        return 0;
     }
 
     return shader;
@@ -40,6 +39,18 @@ GLuint create_program(const char* vertexSource, const char* fragmentSource)
 {
     const GLuint vertexShader = compile_shader(GL_VERTEX_SHADER, vertexSource);
     const GLuint fragmentShader = compile_shader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (vertexShader == 0 || fragmentShader == 0)
+    {
+        if (vertexShader != 0)
+        {
+            glDeleteShader(vertexShader);
+        }
+        if (fragmentShader != 0)
+        {
+            glDeleteShader(fragmentShader);
+        }
+        return 0;
+    }
 
     const GLuint program = glCreateProgram();
     glAttachShader(program, vertexShader);
@@ -50,19 +61,16 @@ GLuint create_program(const char* vertexSource, const char* fragmentSource)
     glGetProgramiv(program, GL_LINK_STATUS, &success);
     if (success == GL_FALSE)
     {
-        GLint logLength = 0;
-        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
-        std::string log(static_cast<size_t>(std::max(logLength, 1)), '\0');
-        glGetProgramInfoLog(program, logLength, nullptr, log.data());
+        glDeleteProgram(program);
+        glDeleteShader(vertexShader);
+        glDeleteShader(fragmentShader);
+        return 0;
     }
 
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
     return program;
 }
-
-#include <fstream>
-#include <sstream>
 
 std::string read_file_to_string(const std::filesystem::path& path)
 {

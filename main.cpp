@@ -44,7 +44,7 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);  // Enable VSync (1 = sync to refresh rate, 0 = unlimited)
+    glfwSwapInterval(0);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -279,12 +279,14 @@ int main()
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.instanceVBO);
     glBufferData(GL_ARRAY_BUFFER, engine.translations.size() * sizeof(glm::vec2), engine.translations.data(), GL_STATIC_DRAW);
     glEnableVertexAttribArray(1);
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileInstanceVBO);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void *)0);
     glVertexAttribDivisor(1, 1);
 
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibilityVBO);
     glBufferData(GL_ARRAY_BUFFER, appState.tileVisibilities.size() * sizeof(float), appState.tileVisibilities.data(), GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(2);
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileVisibilityVBO);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void *)0);
     glVertexAttribDivisor(2, 1);
 
@@ -301,12 +303,12 @@ int main()
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *)0);
 
-    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.instanceVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileInstanceVBO);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void *)0);
     glVertexAttribDivisor(1, 1);
 
-    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibilityVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileVisibilityVBO);
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void *)0);
     glVertexAttribDivisor(2, 1);

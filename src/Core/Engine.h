@@ -12,7 +12,6 @@
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
 #include <vector>
-#include <iostream>
 #include <optional>
 #include "Types.h"
 
@@ -104,5 +103,4 @@ struct EngineState {
 };
 
 void rebuild_blocked_tiles(EngineState& engine, AppState& appState);
-
 

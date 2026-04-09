@@ -5,3 +5,4 @@
 /.idea
 cmake.log
 debug.log
+/build_codex
