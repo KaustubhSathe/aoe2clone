@@ -10,6 +10,76 @@
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_opengl3.h>
+#include <cmath>
+#include <sstream>
+#include <fstream>
+
+// ============================================================================
+// Debug logging helper
+// ============================================================================
+static void WriteDebugLog(const std::string& msg) {
+    static std::ofstream logFile("debug.log", std::ios::app);
+    logFile << msg << std::flush;
+    OutputDebugStringA(msg.c_str());
+}
+
+// ============================================================================
+// Frustum Culling Helper Functions
+// ============================================================================
+
+// Struct to hold visible tile data (translation + grid index for visibility lookup)
+struct VisibleTileData {
+    glm::vec2 translation;
+    int gridIndex;
+};
+
+// Calculate which tiles are visible given the camera position and zoom.
+// Returns a vector of VisibleTileData for visible tiles.
+static std::vector<VisibleTileData> CalculateVisibleTiles(
+    float cameraX, float cameraY, float zoom,
+    const std::vector<glm::vec2>& translations)
+{
+    std::vector<VisibleTileData> visibleTiles;
+
+    // Calculate visible world bounds
+    // After view transformation: visible X range is [cameraX - halfW, cameraX + halfW]
+    // visible Y range is [cameraY - halfH, cameraY + halfH]
+    const float halfW = (static_cast<float>(SCR_WIDTH) / 2.0f) / zoom;
+    const float halfH = (static_cast<float>(SCR_HEIGHT) / 2.0f) / zoom;
+
+    // Add padding to ensure tiles at edges are included
+    const float padding = TILE_HALF_WIDTH * 3.0f;
+
+    const float viewLeft = cameraX - halfW - padding;
+    const float viewRight = cameraX + halfW + padding;
+    const float viewTop = cameraY - halfH - padding;
+    const float viewBottom = cameraY + halfH + padding;
+
+    // Iterate through all tiles and check if within view
+    for (int ty = 0; ty < GRID_SIZE; ++ty)
+    {
+        for (int tx = 0; tx < GRID_SIZE; ++tx)
+        {
+            const int index = ty * GRID_SIZE + tx;
+            if (index >= 0 && index < static_cast<int>(translations.size()))
+            {
+                const glm::vec2& trans = translations[index];
+
+                // Check if tile center is within view bounds (with padding for diamond shape)
+                // The tile diamond spans TILE_HALF_WIDTH in X and TILE_HALF_HEIGHT in Y from center
+                if (trans.x + TILE_HALF_WIDTH >= viewLeft &&
+                    trans.x - TILE_HALF_WIDTH <= viewRight &&
+                    trans.y + TILE_HALF_HEIGHT >= viewTop &&
+                    trans.y - TILE_HALF_HEIGHT <= viewBottom)
+                {
+                    visibleTiles.push_back({trans, index});
+                }
+            }
+        }
+    }
+
+    return visibleTiles;
+}
 
 void UpdateSimulation(EngineState& engine, AppState& appState)
 {
@@ -467,67 +537,106 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
         }
 
 
-        // ---------------------------------------------------------------------
-        // Line of Sight Update (Fog of War)
-        // Recompute the 4-tile circular radius around the villager each frame.
-        // ---------------------------------------------------------------------
-        std::fill(appState.visible.begin(), appState.visible.end(), false);
-        
-        // Villager visibility
+        // Update tile visibility based on LOS (fog of war)
+        // Step 1: Reset all visible tiles to false
+        for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
+        {
+            appState.visible[i] = false;
+        }
+
+        int villagerCount = 0;
+        int villagerVisibleCount = 0;
+        int tcCount = 0;
+        int tcVisibleCount = 0;
+
+        // Step 2: Mark tiles visible based on villager line of sight
         for (const auto& [uuid, v] : appState.villagers)
         {
-            const std::optional<glm::ivec2> tile = world_to_tile(v.position);
-            if (tile.has_value())
+            villagerCount++;
+            if (v.isGarrisoned) continue;
+
+            const std::optional<glm::ivec2> vTile = world_to_tile(v.position);
+            if (!vTile.has_value()) {
+                WriteDebugLog("FOW: Villager " + std::to_string(v.uuid) + " has no valid tile\n");
+                continue;
+            }
+
+            const int centerTX = vTile->x;
+            const int centerTY = vTile->y;
+            const int losRadiusSq = static_cast<int>(VILLAGER_LOS_RADIUS * VILLAGER_LOS_RADIUS);
+
+            WriteDebugLog("FOW: Villager " + std::to_string(v.uuid) + " at tile (" + std::to_string(centerTX) + "," + std::to_string(centerTY)
+                + ") world (" + std::to_string(v.position.x) + "," + std::to_string(v.position.y) + ")\n");
+
+            // Square loop for performance (outer radius check on distSq)
+            for (int dy = -static_cast<int>(VILLAGER_LOS_RADIUS); dy <= static_cast<int>(VILLAGER_LOS_RADIUS); ++dy)
             {
-                const int cx = tile->x;
-                const int cy = tile->y;
-                const int radiusSquare = 4 * 4;
-                for (int dy = -4; dy <= 4; dy++)
+                for (int dx = -static_cast<int>(VILLAGER_LOS_RADIUS); dx <= static_cast<int>(VILLAGER_LOS_RADIUS); ++dx)
                 {
-                    for (int dx = -4; dx <= 4; dx++)
+                    if (dx * dx + dy * dy > losRadiusSq) continue;
+
+                    int tx = centerTX + dx;
+                    int ty = centerTY + dy;
+                    if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
                     {
-                        if (dx * dx + dy * dy <= radiusSquare)
-                        {
-                            const int tx = cx + dx;
-                            const int ty = cy + dy;
-                            if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
-                            {
-                                const int index = ty * GRID_SIZE + tx;
-                                appState.visible[index] = true;
-                                appState.explored[index] = true;
-                            }
-                        }
+                        int index = ty * GRID_SIZE + tx;
+                        appState.visible[index] = true;
+                        appState.explored[index] = true;
+                        villagerVisibleCount++;
                     }
                 }
             }
         }
 
-        // Town Center visibility
-        for (const auto& [tcUUID, tc] : appState.townCenters)
+        // Step 3: Mark tiles visible based on town center line of sight
+        for (const auto& [uuid, tc] : appState.townCenters)
         {
-            // Calculate pseudo center of 4x4
-            const int cx = tc.tile.x + 2; 
-            const int cy = tc.tile.y + 2;
-            const int radiusSquare = 8 * 8;
-            for (int dy = -8; dy <= 8; dy++)
+            tcCount++;
+            const int centerTX = tc.tile.x + 2;
+            const int centerTY = tc.tile.y + 2;
+            const int losRadiusSq = static_cast<int>(TOWN_CENTER_LOS_RADIUS * TOWN_CENTER_LOS_RADIUS);
+
+            WriteDebugLog("FOW: TownCenter " + std::to_string(tc.uuid) + " center at tile (" + std::to_string(centerTX) + "," + std::to_string(centerTY)
+                + ") world (" + std::to_string(tc.position.x) + "," + std::to_string(tc.position.y) + ")\n");
+
+            for (int dy = -static_cast<int>(TOWN_CENTER_LOS_RADIUS); dy <= static_cast<int>(TOWN_CENTER_LOS_RADIUS); ++dy)
             {
-                for (int dx = -8; dx <= 8; dx++)
+                for (int dx = -static_cast<int>(TOWN_CENTER_LOS_RADIUS); dx <= static_cast<int>(TOWN_CENTER_LOS_RADIUS); ++dx)
                 {
-                    if (dx * dx + dy * dy <= radiusSquare)
+                    if (dx * dx + dy * dy > losRadiusSq) continue;
+
+                    int tx = centerTX + dx;
+                    int ty = centerTY + dy;
+                    if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
                     {
-                        const int tx = cx + dx;
-                        const int ty = cy + dy;
-                        if (tx >= 0 && tx < GRID_SIZE && ty >= 0 && ty < GRID_SIZE)
-                        {
-                            const int index = ty * GRID_SIZE + tx;
-                            appState.visible[index] = true;
-                            appState.explored[index] = true;
-                        }
+                        int index = ty * GRID_SIZE + tx;
+                        appState.visible[index] = true;
+                        appState.explored[index] = true;
+                        tcVisibleCount++;
                     }
                 }
             }
         }
-        
+
+        WriteDebugLog("FOW: Villagers=" + std::to_string(villagerCount) + " TC=" + std::to_string(tcCount)
+            + " villagerTiles=" + std::to_string(villagerVisibleCount) + " tcTiles=" + std::to_string(tcVisibleCount) + "\n");
+
+        // Debug: check visibility of tiles around town center (GRID_SIZE/2, GRID_SIZE/2)
+        int tcCenterIdx = (GRID_SIZE / 2) * GRID_SIZE + (GRID_SIZE / 2);
+        WriteDebugLog("FOW: TC center tile (" + std::to_string(GRID_SIZE/2) + "," + std::to_string(GRID_SIZE/2) + ") index=" + std::to_string(tcCenterIdx)
+            + " visible=" + std::to_string(appState.visible[tcCenterIdx] ? 1 : 0)
+            + " explored=" + std::to_string(appState.explored[tcCenterIdx] ? 1 : 0) + "\n");
+        int tcCenterIdx2 = ((GRID_SIZE / 2) + 2) * GRID_SIZE + (GRID_SIZE / 2 + 2);
+        WriteDebugLog("FOW: TC center tile+2 (" + std::to_string(GRID_SIZE/2+2) + "," + std::to_string(GRID_SIZE/2+2) + ") index=" + std::to_string(tcCenterIdx2)
+            + " visible=" + std::to_string(appState.visible[tcCenterIdx2] ? 1 : 0)
+            + " explored=" + std::to_string(appState.explored[tcCenterIdx2] ? 1 : 0) + "\n");
+        // Check villager spawn tile
+        int villagerTileIdx = ((GRID_SIZE / 2) + 5) * GRID_SIZE + (GRID_SIZE / 2 - 1);
+        WriteDebugLog("FOW: Villager spawn tile (" + std::to_string(GRID_SIZE/2-1) + "," + std::to_string(GRID_SIZE/2+5) + ") index=" + std::to_string(villagerTileIdx)
+            + " visible=" + std::to_string(appState.visible[villagerTileIdx] ? 1 : 0)
+            + " explored=" + std::to_string(appState.explored[villagerTileIdx] ? 1 : 0) + "\n");
+
+        // Update tile visibility based on LOS
         for (int i = 0; i < GRID_SIZE * GRID_SIZE; i++)
         {
             if (appState.visible[i])
@@ -616,11 +725,91 @@ void RenderScene(EngineState& engine, AppState& appState)
         glUniformMatrix4fv(engine.gpu.tileProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(engine.gpu.tileViewLoc, 1, GL_FALSE, glm::value_ptr(view));
 
+        // ---------------------------------------------------------------------
+        // FRUSTUM CULLING: Calculate visible tiles based on camera view
+        // For isometric tiles:
+        // - TILE_HALF_WIDTH = 48, TILE_HALF_HEIGHT = 24
+        // - Tile spans horizontally by TILE_HALF_WIDTH, vertically by TILE_HALF_HEIGHT
+        // ---------------------------------------------------------------------
+
+        // Calculate tile index bounds from camera position and view size
+        // In isometric coordinates:
+        // - world to tile: tx = (world_x / TILE_HALF_WIDTH + world_y / TILE_HALF_HEIGHT) / 2
+        //                  ty = (world_y / TILE_HALF_HEIGHT - world_x / TILE_HALF_WIDTH) / 2
+        // Camera world position (cameraX, cameraY) maps to tile (tx, ty)
+        // - Top of frustum (cameraY + halfH): smallest ty (appears higher on screen)
+        // - Bottom of frustum (cameraY - halfH): largest ty (appears lower on screen)
+        const float worldTop = cameraY + halfH;
+        const float worldBottom = cameraY - halfH;
+        const float hw = static_cast<float>(TILE_HALF_WIDTH);
+        const float hh = static_cast<float>(TILE_HALF_HEIGHT);
+        int minTY = std::max(0, static_cast<int>(std::floor((worldTop / hh - cameraX / hw) / 2.0f) - 1));
+        int maxTY = std::min(GRID_SIZE - 1, static_cast<int>(std::ceil((worldBottom / hh - cameraX / hw) / 2.0f) + 1));
+
+        WriteDebugLog("FC: camera=(" + std::to_string(cameraX) + "," + std::to_string(cameraY) + ") zoom=" + std::to_string(zoom)
+            + " halfW=" + std::to_string(halfW) + " halfH=" + std::to_string(halfH)
+            + " worldTop=" + std::to_string(worldTop) + " worldBottom=" + std::to_string(worldBottom)
+            + " tileTY=[" + std::to_string(minTY) + "," + std::to_string(maxTY) + "]\n");
+
+        // For each row, calculate visible columns based on horizontal bounds
+        int visibleCount = 0;
+        std::vector<glm::vec2> visibleTranslations;
+        std::vector<float> visibleVisibilities;
+
+        // Debug: sample visibility of first visible tile
+        bool firstTileLogged = false;
+
+        // Skip entirely if maxTY < minTY (camera outside map vertically)
+        if (maxTY >= minTY) {
+        for (int ty = minTY; ty <= maxTY; ++ty) {
+            // Isometric: given worldY at row ty, worldX = (tx - ty) * hw
+            // Solve: tx = (wx / hw + ty)
+            // Left edge: wx = leftEdge = cameraX - halfW
+            // Right edge: wx = rightEdge = cameraX + halfW
+            // Add margin for diamond shape (~1 tile on each side)
+            const int margin = 2;
+            int minTX = std::max(0, static_cast<int>(std::floor((cameraX - halfW) / hw + static_cast<float>(ty) - static_cast<float>(margin))));
+            int maxTX = std::min(GRID_SIZE - 1, static_cast<int>(std::ceil((cameraX + halfW) / hw + static_cast<float>(ty) + static_cast<float>(margin))));
+
+            for (int tx = minTX; tx <= maxTX; ++tx) {
+                int index = ty * GRID_SIZE + tx;
+                visibleTranslations.push_back(engine.translations[index]);
+                visibleVisibilities.push_back(appState.tileVisibilities[index]);
+                visibleCount++;
+
+                if (!firstTileLogged && visibleCount == 1) {
+                    WriteDebugLog("FC: First tile (" + std::to_string(tx) + "," + std::to_string(ty) + ") vis=" + std::to_string(appState.tileVisibilities[index]) + "\n");
+                    firstTileLogged = true;
+                }
+            }
+        }
+        }
+
+        WriteDebugLog("FC: visibleCount=" + std::to_string(visibleCount) + "\n");
+
+        // Upload visible tile data to GPU
+        if (visibleCount > 0) {
+            glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.instanceVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, visibleTranslations.size() * sizeof(glm::vec2), visibleTranslations.data());
+
+            glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibilityVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, visibleVisibilities.size() * sizeof(float), visibleVisibilities.data());
+        }
+
+        // Render tiles with frustum culling
         glBindVertexArray(engine.gpu.tileVAO);
         glUniform4f(engine.gpu.tileColorLoc, 0.2f, 0.6f, 0.2f, 1.0f);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, GRID_SIZE * GRID_SIZE);
+        glDrawArraysInstanced(GL_TRIANGLES, 0, 6, visibleCount);
 
+        GLenum glErr = glGetError();
+        if (glErr != GL_NO_ERROR) {
+            std::ostringstream oss;
+            oss << "DEBUG GL ERROR after tile render: " << glErr << "\n";
+            WriteDebugLog(oss.str());
+        }
+
+        // Render blocked tiles (not culled - these are already filtered)
         if (!engine.blockedTileTranslations.empty())
         {
             glBindVertexArray(engine.gpu.blockedTileVAO);
@@ -628,9 +817,10 @@ void RenderScene(EngineState& engine, AppState& appState)
             glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(engine.blockedTileTranslations.size()));
         }
 
+        // Render tile outlines (culled to visible tiles)
         glBindVertexArray(engine.gpu.outlineVAO);
         glUniform4f(engine.gpu.tileColorLoc, 0.1f, 0.4f, 0.1f, 1.0f);
-        glDrawArraysInstanced(GL_LINE_LOOP, 0, 4, GRID_SIZE * GRID_SIZE);
+        glDrawArraysInstanced(GL_LINE_LOOP, 0, 4, visibleCount);
 
         // ---------------------------------------------------------------------
         // Render Sprites (Depth Sorted)
@@ -643,14 +833,34 @@ void RenderScene(EngineState& engine, AppState& appState)
         };
         std::vector<RenderPayload> renderQueue;
 
+        // Calculate world bounds for sprite frustum culling
+        const float padding = TILE_HALF_WIDTH * 2.0f;
+        const float viewLeft = cameraX - halfW - padding;
+        const float viewRight = cameraX + halfW + padding;
+        const float viewTop = cameraY - halfH - padding;
+        const float viewBottom = cameraY + halfH + padding;
+
+        // Helper lambda: check if a world-positioned entity is within camera view
+        auto isInView = [&](float wx, float wy, float sizeX, float sizeY) -> bool {
+            const float halfSX = sizeX * 0.5f;
+            const float halfSY = sizeY * 0.5f;
+            return (wx + halfSX >= viewLeft && wx - halfSX <= viewRight &&
+                    wy + halfSY >= viewTop && wy - halfSY <= viewBottom);
+        };
+
         if (engine.pineTreeFrame.has_value())
         {
             for (auto& [uuid, pt] : appState.pineTrees)
             {
                 if (appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x] > 0.0f)
                 {
-                    // Sort anchored at the bottom of the tree
-                    renderQueue.push_back({0, uuid, pt.position.y + PINE_RENDER_OFFSET.y});
+                    const float px = pt.position.x + PINE_RENDER_OFFSET.x;
+                    const float py = pt.position.y + PINE_RENDER_OFFSET.y;
+                    if (isInView(px, py, 72.0f, 72.0f))
+                    {
+                        // Sort anchored at the bottom of the tree
+                        renderQueue.push_back({0, uuid, pt.position.y + PINE_RENDER_OFFSET.y});
+                    }
                 }
             }
         }
@@ -662,7 +872,12 @@ void RenderScene(EngineState& engine, AppState& appState)
                 const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
                 if (tcIndex >= 0 && tcIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[tcIndex] > 0.0f)
                 {
-                    renderQueue.push_back({1, uuid, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y});
+                    const float px = tc.position.x + TOWN_CENTER_RENDER_OFFSET.x;
+                    const float py = tc.position.y + TOWN_CENTER_RENDER_OFFSET.y;
+                    if (isInView(px, py, 256.0f, 256.0f))
+                    {
+                        renderQueue.push_back({1, uuid, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y});
+                    }
                 }
             }
         }
@@ -673,7 +888,12 @@ void RenderScene(EngineState& engine, AppState& appState)
             const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
             if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
             {
-                renderQueue.push_back({3, uuid, house.position.y + HOUSE_RENDER_OFFSET.y});
+                const float px = house.position.x + HOUSE_RENDER_OFFSET.x;
+                const float py = house.position.y + HOUSE_RENDER_OFFSET.y;
+                if (isInView(px, py, 128.0f, 128.0f))
+                {
+                    renderQueue.push_back({3, uuid, house.position.y + HOUSE_RENDER_OFFSET.y});
+                }
             }
         }
 
@@ -681,7 +901,10 @@ void RenderScene(EngineState& engine, AppState& appState)
         {
             if (!v.isGarrisoned)
             {
-                renderQueue.push_back({2, uuid, v.position.y});
+                if (isInView(v.position.x, v.position.y - TILE_HALF_HEIGHT, 72.0f, 72.0f))
+                {
+                    renderQueue.push_back({2, uuid, v.position.y});
+                }
             }
         }
         

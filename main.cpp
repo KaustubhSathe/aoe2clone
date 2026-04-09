@@ -264,6 +264,8 @@ int main()
     glGenBuffers(1, &engine.gpu.outlineVBO);
     glGenBuffers(1, &engine.gpu.instanceVBO);
     glGenBuffers(1, &engine.gpu.visibilityVBO);
+    glGenBuffers(1, &engine.gpu.visibleTileInstanceVBO);  // Dynamic VBO for frustum culling
+    glGenBuffers(1, &engine.gpu.visibleTileVisibilityVBO);  // Dynamic VBO for frustum culled tile visibility
     glGenVertexArrays(1, &engine.gpu.blockedTileVAO);
     glGenBuffers(1, &engine.gpu.blockedTileVBO);
     glGenBuffers(1, &engine.gpu.blockedInstanceVBO);
@@ -285,6 +287,13 @@ int main()
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void *)0);
     glVertexAttribDivisor(2, 1);
+
+    // Pre-allocate dynamic VBOs for frustum culling
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileInstanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, GRID_SIZE * GRID_SIZE * sizeof(glm::vec2), nullptr, GL_DYNAMIC_DRAW);
+
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.visibleTileVisibilityVBO);
+    glBufferData(GL_ARRAY_BUFFER, GRID_SIZE * GRID_SIZE * sizeof(float), nullptr, GL_DYNAMIC_DRAW);
 
     glBindVertexArray(engine.gpu.outlineVAO);
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.outlineVBO);

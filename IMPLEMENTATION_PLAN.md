@@ -76,21 +76,16 @@ The next steps focus on turning this technical foundation into a playable RTS ga
     }
     ```
 
-- [ ] **2. Frustum Culling for Tiles** (Biggest Win - 3-5x improvement)
-  - **File:** `src/Core/GameLoop.cpp` - in `RenderScene()` before line 615
-  - Currently all 40,000 tiles are processed every frame. Only tiles visible by the camera should be drawn.
-  - Implementation approach:
-    - Calculate visible tile range from camera position and zoom level
-    - Only upload instance data for visible tiles to GPU
-    - Use instanced rendering with filtered visible tiles
-    ```cpp
-    // Calculate visible tile bounds
-    int minTileX = std::max(0, static_cast<int>(cameraTileX - visibleRange));
-    int maxTileX = std::min(GRID_SIZE - 1, static_cast<int>(cameraTileX + visibleRange));
-    int minTileY = std::max(0, static_cast<int>(cameraTileY - visibleRange));
-    int maxTileY = std::min(GRID_SIZE - 1, static_cast<int>(cameraTileY + visibleRange));
-    // Build visible tile list and render only those
-    ```
+- [x] **2. Frustum Culling for Tiles** (Biggest Win - 3-5x improvement)
+  - **File:** `src/Game/GameLoop.cpp` - in `RenderScene()`
+  - Calculate visible tile range from camera position and zoom level
+  - Only upload instance data for visible tiles to GPU
+  - Use instanced rendering with filtered visible tiles
+  - Implementation details:
+    - Calculate visible tile bounds based on camera position and zoom
+    - Build visible translations/visibilities vectors for visible tiles only
+    - Upload visible tile data to instanceVBO and visibilityVBO each frame
+    - Render with glDrawArraysInstanced using visible count
   - **Expected gain: 3-5x improvement when zoomed in, minimal change when zoomed out**
 
 - [ ] **3. Sprite Batching with Instanced Rendering** (2-3x improvement)

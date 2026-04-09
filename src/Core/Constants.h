@@ -22,3 +22,7 @@ constexpr float HOUSE_BUILD_TIME = 25.0f;
 
 // Tweakable offset for building placement highlight (adjust if highlight doesn't align with cursor)
 constexpr glm::vec2 HIGHLIGHT_OFFSET = glm::vec2(0.0f, -20.0f);
+
+// Line of Sight radii for fog of war (in tiles)
+constexpr float VILLAGER_LOS_RADIUS = 4.0f;
+constexpr float TOWN_CENTER_LOS_RADIUS = 8.0f;

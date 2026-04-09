@@ -34,6 +34,8 @@ struct GPUState {
     GLuint outlineVBO = 0;
     GLuint instanceVBO = 0;
     GLuint visibilityVBO = 0;
+    GLuint visibleTileInstanceVBO = 0;  // Dynamic VBO for frustum culled tile translations
+    GLuint visibleTileVisibilityVBO = 0;  // Dynamic VBO for frustum culled tile visibility
     GLuint blockedTileVAO = 0;
     GLuint blockedTileVBO = 0;
     GLuint blockedInstanceVBO = 0;
@@ -58,7 +60,6 @@ struct GPUState {
     GLint tileColorLoc = -1;
     GLint tileProjLoc = -1;
     GLint tileViewLoc = -1;
-
     GLint spriteProjLoc = -1;
     GLint spriteViewLoc = -1;
     GLint spritePosLoc = -1;
