@@ -1,9 +1,9 @@
 #version 330 core
 in vec2 vUV;
+in float vVisibility;
 out vec4 FragColor;
 
 uniform sampler2D uTexture;
-uniform float uVisibility;
 
 void main()
 {
@@ -12,5 +12,5 @@ void main()
     {
         discard;
     }
-    FragColor = color * vec4(uVisibility, uVisibility, uVisibility, 1.0);
+    FragColor = color * vec4(vVisibility, vVisibility, vVisibility, 1.0);
 }

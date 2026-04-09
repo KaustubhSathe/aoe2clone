@@ -23,6 +23,18 @@ struct VisibleTileData {
     int gridIndex;
 };
 
+struct SpriteInstanceData {
+    glm::vec2 position;
+    glm::vec2 size;
+    float visibility = 1.0f;
+};
+
+struct ResolvedSprite {
+    GLuint texture = 0;
+    float sortY = 0.0f;
+    SpriteInstanceData instance;
+};
+
 static bool IsTileTranslationVisible(
     const glm::vec2& translation,
     float viewLeft,
@@ -124,6 +136,62 @@ static void ApplyVisionDelta(AppState& appState, const glm::ivec2& center, int r
             AddDirtyTile(appState, index);
         }
     }
+}
+
+static GLuint ResolveHouseTexture(const EngineState& engine, const House& house)
+{
+    if (!house.isUnderConstruction)
+    {
+        return engine.houseStage3.texture;
+    }
+
+    if (house.buildProgress < 0.33f)
+    {
+        return engine.houseStage0.texture;
+    }
+    if (house.buildProgress < 0.66f)
+    {
+        return engine.houseStage1.texture;
+    }
+    if (house.buildProgress < 1.0f)
+    {
+        return engine.houseStage2.texture;
+    }
+    return engine.houseStage3.texture;
+}
+
+static const TextureFrame* ResolveVillagerFrame(const EngineState& engine, const Villager& villager)
+{
+    const AnimationSet& activeAnimation = villager.isBuilding ? engine.builderAnimation : (villager.moving ? engine.walkAnimation : engine.idleAnimation);
+    if (activeAnimation.frames.empty())
+    {
+        return nullptr;
+    }
+
+    int frameIndex = 0;
+    if (villager.isBuilding)
+    {
+        const int builderFrameCount = static_cast<int>(engine.builderAnimation.frames.size());
+        if (builderFrameCount > 0)
+        {
+            int dirGroup = walk_direction_group_from_direction(villager.facingDirection);
+            frameIndex = dirGroup * WALK_FRAMES_PER_DIRECTION + (villager.builderFrameIndex % WALK_FRAMES_PER_DIRECTION);
+            if (frameIndex >= builderFrameCount)
+            {
+                frameIndex = frameIndex % builderFrameCount;
+            }
+        }
+    }
+    else if (villager.moving)
+    {
+        frameIndex = walk_animation_index(villager.facingDirection, villager.walkFrameIndex, static_cast<int>(engine.walkAnimation.frames.size()));
+    }
+    else
+    {
+        frameIndex = facing_index_from_direction(villager.facingDirection, static_cast<int>(engine.idleAnimation.frames.size()));
+    }
+
+    return &activeAnimation.frames[static_cast<size_t>(frameIndex)];
 }
 
 static void SyncVisionSource(
@@ -809,12 +877,7 @@ void RenderScene(EngineState& engine, AppState& appState)
         // Render Sprites (Depth Sorted)
         // isometric depth sorting: higher world Y is drawn first (further away).
         // ---------------------------------------------------------------------
-        struct RenderPayload {
-            int type; // 0=PineTree, 1=TownCenter, 2=Villager, 3=House
-            EntityId uuid;
-            float sortY;
-        };
-        std::vector<RenderPayload> renderQueue;
+        std::vector<ResolvedSprite> renderQueue;
 
         // Calculate world bounds for sprite frustum culling
         const float padding = TILE_HALF_WIDTH * 2.0f;
@@ -842,7 +905,12 @@ void RenderScene(EngineState& engine, AppState& appState)
                     if (isInView(px, py, 72.0f, 72.0f))
                     {
                         // Sort anchored at the bottom of the tree
-                        renderQueue.push_back({0, uuid, pt.position.y + PINE_RENDER_OFFSET.y});
+                        renderQueue.push_back({
+                            engine.pineTreeFrame->texture,
+                            pt.position.y + PINE_RENDER_OFFSET.y,
+                            {glm::vec2(pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y + PINE_RENDER_OFFSET.y),
+                             appState.pineTreeSpriteSize,
+                             appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x]}});
                     }
                 }
             }
@@ -859,7 +927,12 @@ void RenderScene(EngineState& engine, AppState& appState)
                     const float py = tc.position.y + TOWN_CENTER_RENDER_OFFSET.y;
                     if (isInView(px, py, 256.0f, 256.0f))
                     {
-                        renderQueue.push_back({1, uuid, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y});
+                        renderQueue.push_back({
+                            engine.townCenterFrame->texture,
+                            tc.position.y + TOWN_CENTER_RENDER_OFFSET.y,
+                            {glm::vec2(px, py),
+                             appState.townCenterSpriteSize,
+                             appState.tileVisibilities[tcIndex]}});
                     }
                 }
             }
@@ -875,7 +948,12 @@ void RenderScene(EngineState& engine, AppState& appState)
                 const float py = house.position.y + HOUSE_RENDER_OFFSET.y;
                 if (isInView(px, py, 128.0f, 128.0f))
                 {
-                    renderQueue.push_back({3, uuid, house.position.y + HOUSE_RENDER_OFFSET.y});
+                    renderQueue.push_back({
+                        ResolveHouseTexture(engine, house),
+                        house.position.y + HOUSE_RENDER_OFFSET.y,
+                        {glm::vec2(px, py),
+                         appState.houseSpriteSize,
+                         house.isGhostFoundation ? 0.5f : appState.tileVisibilities[houseIndex]}});
                 }
             }
         }
@@ -886,120 +964,53 @@ void RenderScene(EngineState& engine, AppState& appState)
             {
                 if (isInView(v.position.x, v.position.y - TILE_HALF_HEIGHT, 72.0f, 72.0f))
                 {
-                    renderQueue.push_back({2, uuid, v.position.y});
+                    const TextureFrame* activeFrame = ResolveVillagerFrame(engine, v);
+                    if (activeFrame != nullptr)
+                    {
+                        renderQueue.push_back({
+                            activeFrame->texture,
+                            v.position.y,
+                            {glm::vec2(v.position.x, v.position.y - TILE_HALF_HEIGHT),
+                             spriteScale,
+                             1.0f}});
+                    }
                 }
             }
         }
         
-        std::sort(renderQueue.begin(), renderQueue.end(), [](const RenderPayload& a, const RenderPayload& b) {
+        std::sort(renderQueue.begin(), renderQueue.end(), [](const ResolvedSprite& a, const ResolvedSprite& b) {
             return a.sortY > b.sortY;
         });
 
         // --- Phase 1: Draw Sprites ---
+        // Keep the existing depth order, but collapse contiguous same-texture runs
+        // into a single instanced draw call.
         glUseProgram(engine.gpu.spriteShaderProgram);
         glUniformMatrix4fv(engine.gpu.spriteProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
         glUniformMatrix4fv(engine.gpu.spriteViewLoc, 1, GL_FALSE, glm::value_ptr(view));
         glBindVertexArray(engine.gpu.spriteVAO);
-
-        for (const RenderPayload& payload : renderQueue)
+        std::vector<SpriteInstanceData> spriteBatch;
+        spriteBatch.reserve(renderQueue.size());
+        size_t batchStart = 0;
+        while (batchStart < renderQueue.size())
         {
-            if (payload.type == 0) // Pine Tree
+            const GLuint texture = renderQueue[batchStart].texture;
+            spriteBatch.clear();
+
+            size_t batchEnd = batchStart;
+            while (batchEnd < renderQueue.size() && renderQueue[batchEnd].texture == texture)
             {
-                const PineTree& pt = appState.pineTrees.at(payload.uuid);
-                const float treeVis = appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x];
-                glUniform2f(engine.gpu.spriteSizeLoc, appState.pineTreeSpriteSize.x, appState.pineTreeSpriteSize.y);
-                glUniform1f(engine.gpu.spriteVisLoc, treeVis);
-
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, engine.pineTreeFrame->texture);
-                glUniform2f(engine.gpu.spritePosLoc, pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y + PINE_RENDER_OFFSET.y);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
+                spriteBatch.push_back(renderQueue[batchEnd].instance);
+                ++batchEnd;
             }
-            else if (payload.type == 1) // Town Center
-            {
-                const TownCenter& tc = appState.townCenters.at(payload.uuid);
-                const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
-                glUniform2f(engine.gpu.spriteSizeLoc, appState.townCenterSpriteSize.x, appState.townCenterSpriteSize.y);
-                glUniform1f(engine.gpu.spriteVisLoc, appState.tileVisibilities[tcIndex]);
 
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, engine.townCenterFrame->texture);
-                glUniform2f(engine.gpu.spritePosLoc, tc.position.x + TOWN_CENTER_RENDER_OFFSET.x, tc.position.y + TOWN_CENTER_RENDER_OFFSET.y);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-            }
-            else if (payload.type == 2) // Villager
-            {
-                const Villager& v = appState.villagers.at(payload.uuid);
-                const AnimationSet& activeAnimation = v.isBuilding ? engine.builderAnimation : (v.moving ? engine.walkAnimation : engine.idleAnimation);
-                if (!activeAnimation.frames.empty())
-                {
-                    int frameIndex = 0;
-                    if (v.isBuilding)
-                    {
-                        // Builder animation uses direction-based frame selection
-                        const int builderFrameCount = static_cast<int>(engine.builderAnimation.frames.size());
-                        if (builderFrameCount == 0)
-                        {
-                            frameIndex = 0;
-                        }
-                        else
-                        {
-                            int dirGroup = walk_direction_group_from_direction(v.facingDirection);
-                            frameIndex = dirGroup * WALK_FRAMES_PER_DIRECTION + (v.builderFrameIndex % WALK_FRAMES_PER_DIRECTION);
-                            if (frameIndex >= builderFrameCount) frameIndex = frameIndex % builderFrameCount;
-                        }
-                    }
-                    else if (v.moving)
-                    {
-                        frameIndex = walk_animation_index(v.facingDirection, v.walkFrameIndex, static_cast<int>(engine.walkAnimation.frames.size()));
-                    }
-                    else
-                    {
-                        frameIndex = facing_index_from_direction(v.facingDirection, static_cast<int>(engine.idleAnimation.frames.size()));
-                    }
-                    const TextureFrame& activeFrame = activeAnimation.frames[static_cast<size_t>(frameIndex)];
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.spriteInstanceVBO);
+            glBufferSubData(GL_ARRAY_BUFFER, 0, spriteBatch.size() * sizeof(SpriteInstanceData), spriteBatch.data());
+            glDrawArraysInstanced(GL_TRIANGLES, 0, 6, static_cast<GLsizei>(spriteBatch.size()));
 
-                    glUniform2f(engine.gpu.spriteSizeLoc, spriteScale.x, spriteScale.y);
-                    glUniform1f(engine.gpu.spriteVisLoc, 1.0f); // Always lit
-
-                    glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, activeFrame.texture);
-                    // Standard offset used by Villagers (they pivot around TILE_HALF_HEIGHT)
-                    glUniform2f(engine.gpu.spritePosLoc, v.position.x, v.position.y - TILE_HALF_HEIGHT);
-                    glDrawArrays(GL_TRIANGLES, 0, 6);
-                }
-            }
-            else if (payload.type == 3) // House
-            {
-                const House& house = appState.houses.at(payload.uuid);
-                const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
-                glUniform2f(engine.gpu.spriteSizeLoc, appState.houseSpriteSize.x, appState.houseSpriteSize.y);
-                // Ghost foundations render at 50% visibility to distinguish them
-                float houseVis = house.isGhostFoundation ? 0.5f : appState.tileVisibilities[houseIndex];
-                glUniform1f(engine.gpu.spriteVisLoc, houseVis);
-
-                GLuint houseTexture;
-                if (house.isUnderConstruction)
-                {
-                    if (house.buildProgress < 0.33f)
-                        houseTexture = engine.houseStage0.texture;
-                    else if (house.buildProgress < 0.66f)
-                        houseTexture = engine.houseStage1.texture;
-                    else if (house.buildProgress < 1.0f)
-                        houseTexture = engine.houseStage2.texture;
-                    else
-                        houseTexture = engine.houseStage3.texture;
-                }
-                else
-                {
-                    houseTexture = engine.houseStage3.texture;
-                }
-
-                glActiveTexture(GL_TEXTURE0);
-                glBindTexture(GL_TEXTURE_2D, houseTexture);
-                glUniform2f(engine.gpu.spritePosLoc, house.position.x + HOUSE_RENDER_OFFSET.x, house.position.y + HOUSE_RENDER_OFFSET.y);
-                glDrawArrays(GL_TRIANGLES, 0, 6);
-            }
+            batchStart = batchEnd;
         }
         
         // --- Phase 2: Draw Overlays (Selections, Debug Bounds, Waypoints) ---

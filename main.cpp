@@ -44,7 +44,7 @@ int main()
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(1);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
+    glfwSwapInterval(0);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
@@ -338,6 +338,7 @@ int main()
 
     glGenVertexArrays(1, &engine.gpu.spriteVAO);
     glGenBuffers(1, &engine.gpu.spriteVBO);
+    glGenBuffers(1, &engine.gpu.spriteInstanceVBO);
     glBindVertexArray(engine.gpu.spriteVAO);
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.spriteVBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(spriteQuad), spriteQuad, GL_STATIC_DRAW);
@@ -345,6 +346,17 @@ int main()
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
+    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.spriteInstanceVBO);
+    glBufferData(GL_ARRAY_BUFFER, GRID_SIZE * GRID_SIZE * (5 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glVertexAttribDivisor(2, 1);
+    glEnableVertexAttribArray(3);
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribDivisor(3, 1);
+    glEnableVertexAttribArray(4);
+    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(4 * sizeof(float)));
+    glVertexAttribDivisor(4, 1);
 
     std::vector<float> selectionCircle;
     constexpr int selectionSegments = 32;
@@ -404,9 +416,6 @@ int main()
 
     engine.gpu.spriteProjLoc = glGetUniformLocation(engine.gpu.spriteShaderProgram, "uProjection");
     engine.gpu.spriteViewLoc = glGetUniformLocation(engine.gpu.spriteShaderProgram, "uView");
-    engine.gpu.spritePosLoc = glGetUniformLocation(engine.gpu.spriteShaderProgram, "uSpritePos");
-    engine.gpu.spriteSizeLoc = glGetUniformLocation(engine.gpu.spriteShaderProgram, "uSpriteSize");
-    engine.gpu.spriteVisLoc = glGetUniformLocation(engine.gpu.spriteShaderProgram, "uVisibility");
 
     engine.gpu.overlayProjLoc = glGetUniformLocation(engine.gpu.overlayShaderProgram, "uProjection");
     engine.gpu.overlayViewLoc = glGetUniformLocation(engine.gpu.overlayShaderProgram, "uView");
@@ -516,6 +525,7 @@ int main()
     glDeleteBuffers(1, &engine.gpu.outlineVBO);
     glDeleteBuffers(1, &engine.gpu.instanceVBO);
     glDeleteBuffers(1, &engine.gpu.spriteVBO);
+    glDeleteBuffers(1, &engine.gpu.spriteInstanceVBO);
     glDeleteBuffers(1, &engine.gpu.selectionVBO);
     glDeleteBuffers(1, &engine.gpu.rectVBO);
     glDeleteBuffers(1, &engine.gpu.pineBoundsVBO);

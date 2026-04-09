@@ -88,7 +88,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
     - Render with glDrawArraysInstanced using visible count
   - **Expected gain: 3-5x improvement when zoomed in, minimal change when zoomed out**
 
-- [ ] **3. Sprite Batching with Instanced Rendering** (2-3x improvement)
+- [x] **3. Sprite Batching with Instanced Rendering** (2-3x improvement)
   - **File:** `src/Core/GameLoop.cpp` - restructure sprite rendering section
   - Currently each entity (tree, villager, building) is a separate draw call:
     ```cpp

@@ -41,6 +41,7 @@ struct GPUState {
     
     GLuint spriteVAO = 0;
     GLuint spriteVBO = 0;
+    GLuint spriteInstanceVBO = 0;
     
     GLuint selectionVAO = 0;
     GLuint selectionVBO = 0;
@@ -61,9 +62,6 @@ struct GPUState {
     GLint tileViewLoc = -1;
     GLint spriteProjLoc = -1;
     GLint spriteViewLoc = -1;
-    GLint spritePosLoc = -1;
-    GLint spriteSizeLoc = -1;
-    GLint spriteVisLoc = -1;
 
     GLint overlayProjLoc = -1;
     GLint overlayViewLoc = -1;
@@ -103,4 +101,3 @@ struct EngineState {
 };
 
 void rebuild_blocked_tiles(EngineState& engine, AppState& appState);
-
