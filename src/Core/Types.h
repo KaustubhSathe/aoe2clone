@@ -152,6 +152,11 @@ struct BuildTask
     glm::ivec2 targetTile;
 };
 
+struct PathCacheEntry
+{
+    std::vector<int> tileIndices;
+};
+
 struct AppState
 {
     std::unordered_map<EntityId, Villager> villagers;
@@ -176,6 +181,8 @@ struct AppState
     std::vector<int> dirtyTiles;
     std::unordered_map<EntityId, VisionSourceState> visionSources;
     GLuint minimapTexture = 0;
+    int minimapUploadFrameCounter = 0;
+    bool minimapUploadPending = true;
 
     int food = 200;
     int wood = 200;
@@ -194,4 +201,7 @@ struct AppState
     std::vector<BuildTask> buildTasks;
     glm::ivec2 pendingBuildTile = glm::ivec2(-1, -1);
     bool canBuildAtPendingTile = false;
+    uint32_t pathfindingObstacleVersion = 0;
+    std::unordered_map<uint64_t, PathCacheEntry> pathfindingCache;
+    std::vector<uint64_t> pathfindingCacheOrder;
 };

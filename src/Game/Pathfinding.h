@@ -15,5 +15,6 @@ struct AStarNode
     }
 };
 
-std::vector<glm::vec2> find_path(const AppState& appState, const glm::vec2& startWorld, const glm::vec2& targetWorld);
+std::vector<glm::vec2> find_path(AppState& appState, const glm::vec2& startWorld, const glm::vec2& targetWorld);
 std::vector<glm::ivec2> find_group_destinations(const AppState& appState, const glm::ivec2& centerTile, int numUnits);
+void invalidate_pathfinding_cache(AppState& appState);

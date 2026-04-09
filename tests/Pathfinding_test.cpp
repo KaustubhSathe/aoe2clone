@@ -95,6 +95,44 @@ TEST_F(PathfindingTest, FindPathBlockedByTownCenter)
     EXPECT_EQ(path.back(), target);
 }
 
+TEST_F(PathfindingTest, FindPathCachesRepeatedRequests)
+{
+    glm::vec2 start = tile_to_world(glm::ivec2(0, 0));
+    glm::vec2 target = tile_to_world(glm::ivec2(10, 0));
+
+    auto firstPath = find_path(appState, start, target);
+    ASSERT_FALSE(firstPath.empty());
+    EXPECT_EQ(appState.pathfindingCache.size(), 1u);
+
+    auto secondPath = find_path(appState, start, target);
+    EXPECT_EQ(secondPath, firstPath);
+    EXPECT_EQ(appState.pathfindingCache.size(), 1u);
+}
+
+TEST_F(PathfindingTest, FindPathCacheInvalidatesWhenObstacleVersionChanges)
+{
+    glm::vec2 start = tile_to_world(glm::ivec2(0, 0));
+    glm::vec2 target = tile_to_world(glm::ivec2(10, 0));
+
+    auto firstPath = find_path(appState, start, target);
+    ASSERT_FALSE(firstPath.empty());
+    EXPECT_EQ(appState.pathfindingCache.size(), 1u);
+
+    PineTree tree;
+    tree.uuid = 3;
+    tree.tile = glm::ivec2(5, 0);
+    appState.pineTrees[tree.uuid] = tree;
+    invalidate_pathfinding_cache(appState);
+
+    EXPECT_EQ(appState.pathfindingCache.size(), 0u);
+    EXPECT_EQ(appState.pathfindingObstacleVersion, 1u);
+
+    auto secondPath = find_path(appState, start, target);
+    ASSERT_FALSE(secondPath.empty());
+    EXPECT_EQ(appState.pathfindingCache.size(), 1u);
+    EXPECT_EQ(secondPath.back(), target);
+}
+
 TEST_F(PathfindingTest, FindGroupDestinationsSingleUnit)
 {
     glm::ivec2 center(10, 10);

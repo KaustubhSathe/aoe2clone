@@ -5,7 +5,60 @@
 #include <queue>
 #include <algorithm>
 
-std::vector<glm::vec2> find_path(const AppState& appState, const glm::vec2& startWorld, const glm::vec2& targetWorld)
+namespace {
+
+constexpr size_t PATHFINDING_CACHE_MAX_ENTRIES = 256;
+
+uint64_t make_path_cache_key(int startIndex, int targetIndex, uint32_t obstacleVersion)
+{
+    return (static_cast<uint64_t>(obstacleVersion) << 32) |
+           (static_cast<uint64_t>(targetIndex & 0xFFFF) << 16) |
+           static_cast<uint64_t>(startIndex & 0xFFFF);
+}
+
+std::vector<glm::vec2> build_world_path_from_tiles(const std::vector<int>& tileIndices, const glm::vec2& targetWorld)
+{
+    std::vector<glm::vec2> path;
+    path.reserve(tileIndices.size());
+
+    for (int tileIndex : tileIndices)
+    {
+        const glm::ivec2 tile(tileIndex % GRID_SIZE, tileIndex / GRID_SIZE);
+        path.push_back(tile_to_world(tile));
+    }
+
+    if (!path.empty())
+    {
+        path.back() = targetWorld;
+    }
+
+    return path;
+}
+
+void store_pathfinding_cache_entry(AppState& appState, uint64_t cacheKey, PathCacheEntry entry)
+{
+    auto existing = appState.pathfindingCache.find(cacheKey);
+    if (existing != appState.pathfindingCache.end())
+    {
+        existing->second = std::move(entry);
+        return;
+    }
+
+    if (appState.pathfindingCache.size() >= PATHFINDING_CACHE_MAX_ENTRIES &&
+        !appState.pathfindingCacheOrder.empty())
+    {
+        const uint64_t evictedKey = appState.pathfindingCacheOrder.front();
+        appState.pathfindingCacheOrder.erase(appState.pathfindingCacheOrder.begin());
+        appState.pathfindingCache.erase(evictedKey);
+    }
+
+    appState.pathfindingCacheOrder.push_back(cacheKey);
+    appState.pathfindingCache.emplace(cacheKey, std::move(entry));
+}
+
+} // namespace
+
+std::vector<glm::vec2> find_path(AppState& appState, const glm::vec2& startWorld, const glm::vec2& targetWorld)
 {
     const std::optional<glm::ivec2> startOpt = world_to_tile(startWorld);
     const std::optional<glm::ivec2> targetOpt = world_to_tile(targetWorld);
@@ -23,6 +76,15 @@ std::vector<glm::vec2> find_path(const AppState& appState, const glm::vec2& star
         return { targetWorld };
     }
 
+    const int startIndex = start.y * GRID_SIZE + start.x;
+    const int targetIndex = target.y * GRID_SIZE + target.x;
+    const uint64_t cacheKey = make_path_cache_key(startIndex, targetIndex, appState.pathfindingObstacleVersion);
+
+    if (auto cached = appState.pathfindingCache.find(cacheKey); cached != appState.pathfindingCache.end())
+    {
+        return build_world_path_from_tiles(cached->second.tileIndices, targetWorld);
+    }
+
     auto heuristic = [](const glm::ivec2& a, const glm::ivec2& b) -> float {
         int dx = std::abs(a.x - b.x);
         int dy = std::abs(a.y - b.y);
@@ -35,7 +97,6 @@ std::vector<glm::vec2> find_path(const AppState& appState, const glm::vec2& star
 
     std::priority_queue<AStarNode, std::vector<AStarNode>, std::greater<AStarNode>> openSet;
 
-    const int startIndex = start.y * GRID_SIZE + start.x;
     gScore[startIndex] = 0.0f;
     openSet.push({ start, heuristic(start, target) });
 
@@ -113,19 +174,24 @@ std::vector<glm::vec2> find_path(const AppState& appState, const glm::vec2& star
         return {};
     }
 
+    PathCacheEntry cacheEntry;
     std::vector<glm::vec2> path;
-    int currPathIndex = target.y * GRID_SIZE + target.x;
+    int currPathIndex = targetIndex;
     while (currPathIndex != startIndex)
     {
         const glm::ivec2 tile(currPathIndex % GRID_SIZE, currPathIndex / GRID_SIZE);
+        cacheEntry.tileIndices.push_back(currPathIndex);
         path.push_back(tile_to_world(tile));
         currPathIndex = cameFrom[currPathIndex];
     }
-    
+
     if (!path.empty())
     {
-        path.front() = targetWorld; 
+        path.front() = targetWorld;
     }
+
+    std::reverse(cacheEntry.tileIndices.begin(), cacheEntry.tileIndices.end());
+    store_pathfinding_cache_entry(appState, cacheKey, std::move(cacheEntry));
 
     std::reverse(path.begin(), path.end());
     return path;
@@ -173,4 +239,11 @@ std::vector<glm::ivec2> find_group_destinations(const AppState& appState, const 
     }
     
     return destinations;
+}
+
+void invalidate_pathfinding_cache(AppState& appState)
+{
+    ++appState.pathfindingObstacleVersion;
+    appState.pathfindingCache.clear();
+    appState.pathfindingCacheOrder.clear();
 }

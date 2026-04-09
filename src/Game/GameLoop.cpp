@@ -35,6 +35,11 @@ struct ResolvedSprite {
     SpriteInstanceData instance;
 };
 
+namespace
+{
+constexpr int MINIMAP_UPLOAD_INTERVAL_FRAMES = 4;
+}
+
 static bool IsTileTranslationVisible(
     const glm::vec2& translation,
     float viewLeft,
@@ -786,8 +791,16 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
             }
         }
         
-        glBindTexture(GL_TEXTURE_2D, appState.minimapTexture);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GRID_SIZE, GRID_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, appState.minimapPixels.data());
+        appState.minimapUploadPending = true;
+        ++appState.minimapUploadFrameCounter;
+        if (appState.minimapUploadPending &&
+            appState.minimapUploadFrameCounter >= MINIMAP_UPLOAD_INTERVAL_FRAMES)
+        {
+            glBindTexture(GL_TEXTURE_2D, appState.minimapTexture);
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, GRID_SIZE, GRID_SIZE, GL_RGBA, GL_UNSIGNED_BYTE, appState.minimapPixels.data());
+            appState.minimapUploadFrameCounter = 0;
+            appState.minimapUploadPending = false;
+        }
 
 
 }

@@ -132,7 +132,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
     ```
   - **Expected gain: 10-20% CPU time reduction**
 
-- [ ] **5. Minimap Update Throttling** (5-10% improvement)
+- [x] **5. Minimap Update Throttling** (5-10% improvement)
   - **File:** `src/Core/GameLoop.cpp:595`
   - Update minimap texture every 4-8 frames instead of every frame:
     ```cpp
@@ -143,7 +143,7 @@ The next steps focus on turning this technical foundation into a playable RTS ga
     ```
   - **Expected gain: Reduce GPU stalls, 5-10% improvement**
 
-- [ ] **6. Pathfinding Cache** (for frequent destinations)
+- [x] **6. Pathfinding Cache** (for frequent destinations)
   - **File:** `src/Game/Pathfinding.cpp`
   - Cache pathfinding results for frequently requested destinations.
 

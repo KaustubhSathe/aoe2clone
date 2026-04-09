@@ -955,6 +955,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
 
 void rebuild_blocked_tiles(EngineState& engine, AppState& appState)
 {
+    invalidate_pathfinding_cache(appState);
 	engine.blockedTileTranslations = blocked_tile_translations(appState);
 	glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.blockedInstanceVBO);
 	glBufferData(GL_ARRAY_BUFFER, engine.blockedTileTranslations.size() * sizeof(glm::vec2), engine.blockedTileTranslations.data(), GL_STATIC_DRAW);
