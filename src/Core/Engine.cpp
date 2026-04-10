@@ -432,6 +432,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 v.isBuilding = false;
                             }
 
+                            // Stop current movement so idle processor walks to build site
+                            v.moving = false;
+
                             // Add BUILD operation to the queue
                             QueuedOperation buildOp;
                             buildOp.type = OperationType::BUILD;
@@ -599,6 +602,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 v.isBuilding = false;
                             }
 
+                            // Stop current movement so idle processor walks to build site
+                            v.moving = false;
+
                             QueuedOperation buildOp;
                             buildOp.type = OperationType::BUILD;
                             buildOp.buildingId = mill.uuid;
@@ -765,6 +771,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 v.isBuilding = false;
                             }
 
+                            // Stop current movement so idle processor walks to build site
+                            v.moving = false;
+
                             QueuedOperation buildOp;
                             buildOp.type = OperationType::BUILD;
                             buildOp.buildingId = miningCamp.uuid;
@@ -930,6 +939,9 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 }
                                 v.isBuilding = false;
                             }
+
+                            // Stop current movement so idle processor walks to build site
+                            v.moving = false;
 
                             QueuedOperation buildOp;
                             buildOp.type = OperationType::BUILD;
