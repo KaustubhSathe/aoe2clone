@@ -2,6 +2,7 @@
 
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include "Constants.h"
 
 #include <vector>
 #include <unordered_map>
@@ -65,7 +66,7 @@ struct Villager
     glm::vec2 facingDirection = glm::vec2(1.0f, 0.0f);
     bool selected = false;
     bool moving = false;
-    float moveSpeed = 107.33126f * 0.5f * 0.8f * 1.7f;
+    float moveSpeed = TILE_WORLD_STEP * 0.8f * GAME_SPEED;
     float walkAnimTimer = 0.0f;
     int walkFrameIndex = 0;
     std::vector<QueuedOperation> operationQueue; // Unified queue for walk/build operations

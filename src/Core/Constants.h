@@ -5,11 +5,12 @@
 constexpr int GRID_SIZE = 200;
 constexpr float TILE_HALF_WIDTH = 48.0f;
 constexpr float TILE_HALF_HEIGHT = 24.0f;
-constexpr float TILE_WORLD_STEP = 53.66563f;
+// sqrt(TILE_HALF_WIDTH² + TILE_HALF_HEIGHT²)
+constexpr float TILE_WORLD_STEP = 53.665631459994952713820168049551f;
 constexpr int WALK_DIRECTION_COUNT = 16;
 constexpr int WALK_FRAMES_PER_DIRECTION = 30;
-constexpr float WALK_ANIMATION_FPS = 30.0f;
-constexpr float BUILD_ANIMATION_FPS = 30.0f;
+constexpr float WALK_ANIMATION_FPS = 20.0f;
+constexpr float BUILD_ANIMATION_FPS = 15.0f;
 constexpr float CLICK_SELECT_RADIUS = 26.0f;
 constexpr float DRAG_THRESHOLD = 4.0f;
 constexpr float MINIMAP_SIZE = 160.0f;
@@ -36,5 +37,6 @@ constexpr float LUMBER_CAMP_BUILD_TIME = 35.0f;
 constexpr glm::vec2 HIGHLIGHT_OFFSET = glm::vec2(0.0f, -20.0f);
 
 // Line of Sight radii for fog of war (in tiles)
+constexpr float GAME_SPEED = 1.7f;
 constexpr float VILLAGER_LOS_RADIUS = 4.0f;
 constexpr float TOWN_CENTER_LOS_RADIUS = 8.0f;
