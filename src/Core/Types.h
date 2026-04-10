@@ -15,6 +15,17 @@ struct TextureFrame
     int frameIndex = 0;
     int width = 0;
     int height = 0;
+    glm::vec2 uvMin = glm::vec2(0.0f, 0.0f);
+    glm::vec2 uvMax = glm::vec2(1.0f, 1.0f);
+};
+
+struct SpriteInstanceData
+{
+    glm::vec2 position = glm::vec2(0.0f);
+    glm::vec2 size = glm::vec2(0.0f);
+    glm::vec2 uvMin = glm::vec2(0.0f, 0.0f);
+    glm::vec2 uvMax = glm::vec2(1.0f, 1.0f);
+    float visibility = 1.0f;
 };
 
 struct AnimationSet
@@ -85,10 +96,52 @@ struct House
     glm::ivec2 tile = glm::ivec2(0);
     glm::vec2 position = glm::vec2(0.0f);
     bool selected = false;
-    int hp = 500;
-    int maxHp = 500;
+    int hp = 550;
+    int maxHp = 550;
     bool isUnderConstruction = true;
     bool isGhostFoundation = true; // Ghost doesn't block tiles until villager arrives
+    float buildProgress = 0.0f;
+    EntityId assignedVillagerId = 0;
+};
+
+struct Mill
+{
+    EntityId uuid = 0;
+    glm::ivec2 tile = glm::ivec2(0);
+    glm::vec2 position = glm::vec2(0.0f);
+    bool selected = false;
+    int hp = 600;
+    int maxHp = 600;
+    bool isUnderConstruction = true;
+    bool isGhostFoundation = true;
+    float buildProgress = 0.0f;
+    EntityId assignedVillagerId = 0;
+};
+
+struct MiningCamp
+{
+    EntityId uuid = 0;
+    glm::ivec2 tile = glm::ivec2(0);
+    glm::vec2 position = glm::vec2(0.0f);
+    bool selected = false;
+    int hp = 600;
+    int maxHp = 600;
+    bool isUnderConstruction = true;
+    bool isGhostFoundation = true;
+    float buildProgress = 0.0f;
+    EntityId assignedVillagerId = 0;
+};
+
+struct LumberCamp
+{
+    EntityId uuid = 0;
+    glm::ivec2 tile = glm::ivec2(0);
+    glm::vec2 position = glm::vec2(0.0f);
+    bool selected = false;
+    int hp = 600;
+    int maxHp = 600;
+    bool isUnderConstruction = true;
+    bool isGhostFoundation = true;
     float buildProgress = 0.0f;
     EntityId assignedVillagerId = 0;
 };
@@ -175,10 +228,16 @@ struct AppState
     std::unordered_map<EntityId, PineTree> pineTrees;
     std::unordered_map<EntityId, TownCenter> townCenters;
     std::unordered_map<EntityId, House> houses;
+    std::unordered_map<EntityId, Mill> mills;
+    std::unordered_map<EntityId, MiningCamp> miningCamps;
+    std::unordered_map<EntityId, LumberCamp> lumberCamps;
 
     glm::vec2 pineTreeSpriteSize = glm::vec2(108.0f, 162.0f);
     glm::vec2 townCenterSpriteSize = glm::vec2(256.0f, 256.0f);
     glm::vec2 houseSpriteSize = glm::vec2(128.0f, 128.0f);
+    glm::vec2 millSpriteSize = glm::vec2(128.0f, 128.0f);
+    glm::vec2 miningCampSpriteSize = glm::vec2(128.0f, 128.0f);
+    glm::vec2 lumberCampSpriteSize = glm::vec2(128.0f, 128.0f);
     SelectionState selection;
     glm::dvec2 cursorScreen = glm::dvec2(0.0);
     EntityId selectedTreeId = 0;

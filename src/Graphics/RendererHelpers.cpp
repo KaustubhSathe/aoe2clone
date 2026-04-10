@@ -97,7 +97,8 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
 
 bool load_texture_from_png(
     const std::filesystem::path& imagePath,
-    TextureFrame& outFrame)
+    TextureFrame& outFrame,
+    bool trimTransparentBounds)
 {
     IWICImagingFactory* imagingFactory = nullptr;
     const HRESULT factoryResult = CoCreateInstance(
@@ -198,6 +199,49 @@ bool load_texture_from_png(
 
     outFrame.width = static_cast<int>(width);
     outFrame.height = static_cast<int>(height);
+    outFrame.uvMin = glm::vec2(0.0f, 0.0f);
+    outFrame.uvMax = glm::vec2(1.0f, 1.0f);
+
+    if (trimTransparentBounds && width > 0 && height > 0)
+    {
+        UINT minX = width;
+        UINT minY = height;
+        UINT maxX = 0;
+        UINT maxY = 0;
+        bool foundOpaquePixel = false;
+
+        for (UINT y = 0; y < height; ++y)
+        {
+            for (UINT x = 0; x < width; ++x)
+            {
+                const size_t pixelIndex = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
+                const unsigned char blue = pixels[pixelIndex + 0];
+                const unsigned char green = pixels[pixelIndex + 1];
+                const unsigned char red = pixels[pixelIndex + 2];
+                const unsigned char alpha = pixels[pixelIndex + 3];
+                const bool isDebugRedBorder = (alpha > 8 && red == 255 && green == 0 && blue == 0);
+                if (alpha > 8 && !isDebugRedBorder)
+                {
+                    foundOpaquePixel = true;
+                    minX = std::min(minX, x);
+                    minY = std::min(minY, y);
+                    maxX = std::max(maxX, x);
+                    maxY = std::max(maxY, y);
+                }
+            }
+        }
+
+        if (foundOpaquePixel)
+        {
+            const float fullWidth = static_cast<float>(width);
+            const float fullHeight = static_cast<float>(height);
+            outFrame.width = static_cast<int>(maxX - minX + 1);
+            outFrame.height = static_cast<int>(maxY - minY + 1);
+            outFrame.uvMin = glm::vec2(static_cast<float>(minX) / fullWidth, static_cast<float>(minY) / fullHeight);
+            outFrame.uvMax = glm::vec2(static_cast<float>(maxX + 1) / fullWidth, static_cast<float>(maxY + 1) / fullHeight);
+        }
+    }
+
     safe_release(converter);
     safe_release(frame);
     safe_release(decoder);

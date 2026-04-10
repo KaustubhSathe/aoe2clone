@@ -10,6 +10,7 @@
 #include "src/Game/GameLogicHelpers.h"
 #include "src/Game/Pathfinding.h"
 #include "src/Game/GameLoop.h"
+#include <cstddef>
 
 int main()
 {
@@ -142,7 +143,7 @@ int main()
     engine.pineTreeFrame = load_frame_by_index(std::filesystem::path("assets") / "n_tree_pine_x1.sld", 4);
 
     TextureFrame tcFrame;
-    if (load_texture_from_png(std::filesystem::path("assets") / "town_center" / "b_afri_town_center_age2_x1.png", tcFrame))
+    if (load_texture_from_png(std::filesystem::path("assets") / "town_center" / "b_afri_town_center_age2_x1.png", tcFrame, true))
     {
         engine.townCenterFrame = tcFrame;
         // A 4x4 tile grid width is 8 * TILE_HALF_WIDTH. We scale the sprite to precisely span the 4x4 base.
@@ -159,9 +160,9 @@ int main()
 
     // Load economic building icons
     load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_35.png", engine.houseIcon);
-    load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_20.png", engine.millIcon);
-    load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_40.png", engine.miningCampIcon);
-    load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_41.png", engine.lumberCampIcon);
+    load_texture_from_png(std::filesystem::path("assets") / "mill" / "image_1x1_0.png", engine.millIcon);
+    load_texture_from_png(std::filesystem::path("assets") / "miningcamp" / "image_1x1_0.png", engine.miningCampIcon);
+    load_texture_from_png(std::filesystem::path("assets") / "lumbercamp" / "image_1x1_0.png", engine.lumberCampIcon);
 
     // Load military building icons
     load_texture_from_png(std::filesystem::path("assets") / "buildings_icons" / "50705_03.png", engine.barracksIcon);
@@ -173,10 +174,28 @@ int main()
     engine.builderAnimation.frames = load_frame_directory(std::filesystem::path("assets") / "u_vil_male_builder_taskA_x2.sld");
 
     // Load house construction stage sprites
-    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_0.png", engine.houseStage0);
-    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_1.png", engine.houseStage1);
-    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_2.png", engine.houseStage2);
-    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_3.png", engine.houseStage3);
+    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_0.png", engine.houseStage0, true);
+    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_1.png", engine.houseStage1, true);
+    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_2.png", engine.houseStage2, true);
+    load_texture_from_png(std::filesystem::path("assets") / "house" / "image_1x1_3.png", engine.houseStage3, true);
+
+    // Load mill construction stage sprites
+    load_texture_from_png(std::filesystem::path("assets") / "mill" / "image_1x1_0.png", engine.millStage0, true);
+    load_texture_from_png(std::filesystem::path("assets") / "mill" / "image_1x1_1.png", engine.millStage1, true);
+    load_texture_from_png(std::filesystem::path("assets") / "mill" / "image_1x1_2.png", engine.millStage2, true);
+    load_texture_from_png(std::filesystem::path("assets") / "mill" / "image_1x1_3.png", engine.millStage3, true);
+
+    // Load mining camp construction stage sprites
+    load_texture_from_png(std::filesystem::path("assets") / "miningcamp" / "image_1x1_0.png", engine.miningCampStage0, true);
+    load_texture_from_png(std::filesystem::path("assets") / "miningcamp" / "image_1x1_1.png", engine.miningCampStage1, true);
+    load_texture_from_png(std::filesystem::path("assets") / "miningcamp" / "image_1x1_2.png", engine.miningCampStage2, true);
+    load_texture_from_png(std::filesystem::path("assets") / "miningcamp" / "image_1x1_3.png", engine.miningCampStage3, true);
+
+    // Load lumber camp construction stage sprites
+    load_texture_from_png(std::filesystem::path("assets") / "lumbercamp" / "image_1x1_0.png", engine.lumberCampStage0, true);
+    load_texture_from_png(std::filesystem::path("assets") / "lumbercamp" / "image_1x1_1.png", engine.lumberCampStage1, true);
+    load_texture_from_png(std::filesystem::path("assets") / "lumbercamp" / "image_1x1_2.png", engine.lumberCampStage2, true);
+    load_texture_from_png(std::filesystem::path("assets") / "lumbercamp" / "image_1x1_3.png", engine.lumberCampStage3, true);
 
     // Scale house sprite to span 2x2 tiles (same as town center but half the width/height)
     if (engine.houseStage3.texture != 0)
@@ -184,6 +203,30 @@ int main()
         const float targetHouseWidth = 4.0f * TILE_HALF_WIDTH; // 2 tiles wide
         const float scaleRatio = targetHouseWidth / static_cast<float>(engine.houseStage3.width);
         appState.houseSpriteSize = glm::vec2(targetHouseWidth, static_cast<float>(engine.houseStage3.height) * scaleRatio);
+    }
+
+    // Scale mill sprite to span 2x2 tiles
+    if (engine.millStage3.texture != 0)
+    {
+        const float targetMillWidth = 4.0f * TILE_HALF_WIDTH; // 2 tiles wide
+        const float scaleRatio = targetMillWidth / static_cast<float>(engine.millStage3.width);
+        appState.millSpriteSize = glm::vec2(targetMillWidth, static_cast<float>(engine.millStage3.height) * scaleRatio);
+    }
+
+    // Scale mining camp sprite to span 2x2 tiles
+    if (engine.miningCampStage3.texture != 0)
+    {
+        const float targetMiningCampWidth = 4.0f * TILE_HALF_WIDTH; // 2 tiles wide
+        const float scaleRatio = targetMiningCampWidth / static_cast<float>(engine.miningCampStage3.width);
+        appState.miningCampSpriteSize = glm::vec2(targetMiningCampWidth, static_cast<float>(engine.miningCampStage3.height) * scaleRatio);
+    }
+
+    // Scale lumber camp sprite to span 2x2 tiles
+    if (engine.lumberCampStage3.texture != 0)
+    {
+        const float targetLumberCampWidth = 4.0f * TILE_HALF_WIDTH; // 2 tiles wide
+        const float scaleRatio = targetLumberCampWidth / static_cast<float>(engine.lumberCampStage3.width);
+        appState.lumberCampSpriteSize = glm::vec2(targetLumberCampWidth, static_cast<float>(engine.lumberCampStage3.height) * scaleRatio);
     }
 
     // Create garrison cursor - try custom cursor first, fall back to ARROW cursor for testing
@@ -347,16 +390,22 @@ int main()
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *)(2 * sizeof(float)));
     glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.spriteInstanceVBO);
-    glBufferData(GL_ARRAY_BUFFER, GRID_SIZE * GRID_SIZE * (5 * sizeof(float)), nullptr, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, GRID_SIZE * GRID_SIZE * sizeof(SpriteInstanceData), nullptr, GL_DYNAMIC_DRAW);
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteInstanceData), (void*)offsetof(SpriteInstanceData, position));
     glVertexAttribDivisor(2, 1);
     glEnableVertexAttribArray(3);
-    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(2 * sizeof(float)));
+    glVertexAttribPointer(3, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteInstanceData), (void*)offsetof(SpriteInstanceData, size));
     glVertexAttribDivisor(3, 1);
     glEnableVertexAttribArray(4);
-    glVertexAttribPointer(4, 1, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(4 * sizeof(float)));
+    glVertexAttribPointer(4, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteInstanceData), (void*)offsetof(SpriteInstanceData, uvMin));
     glVertexAttribDivisor(4, 1);
+    glEnableVertexAttribArray(5);
+    glVertexAttribPointer(5, 2, GL_FLOAT, GL_FALSE, sizeof(SpriteInstanceData), (void*)offsetof(SpriteInstanceData, uvMax));
+    glVertexAttribDivisor(5, 1);
+    glEnableVertexAttribArray(6);
+    glVertexAttribPointer(6, 1, GL_FLOAT, GL_FALSE, sizeof(SpriteInstanceData), (void*)offsetof(SpriteInstanceData, visibility));
+    glVertexAttribDivisor(6, 1);
 
     std::vector<float> selectionCircle;
     constexpr int selectionSegments = 32;

@@ -16,9 +16,21 @@ constexpr float MINIMAP_SIZE = 160.0f;
 constexpr glm::vec2 PINE_RENDER_OFFSET = glm::vec2(-20.0f, -10.0f);
 constexpr glm::vec2 TOWN_CENTER_RENDER_OFFSET = glm::vec2(0.0f, -120.0f);
 constexpr glm::vec2 HOUSE_RENDER_OFFSET = glm::vec2(0.0f, -60.0f);
+constexpr glm::vec2 MILL_RENDER_OFFSET = glm::vec2(0.0f, -60.0f);
+constexpr glm::vec2 MINING_CAMP_RENDER_OFFSET = glm::vec2(0.0f, -60.0f);
+constexpr glm::vec2 LUMBER_CAMP_RENDER_OFFSET = glm::vec2(0.0f, -60.0f);
 
 constexpr int HOUSE_COST_WOOD = 25;
 constexpr float HOUSE_BUILD_TIME = 25.0f;
+
+constexpr int MILL_COST_WOOD = 100;
+constexpr float MILL_BUILD_TIME = 35.0f;
+
+constexpr int MINING_CAMP_COST_WOOD = 100;
+constexpr float MINING_CAMP_BUILD_TIME = 35.0f;
+
+constexpr int LUMBER_CAMP_COST_WOOD = 100;
+constexpr float LUMBER_CAMP_BUILD_TIME = 35.0f;
 
 // Tweakable offset for building placement highlight (adjust if highlight doesn't align with cursor)
 constexpr glm::vec2 HIGHLIGHT_OFFSET = glm::vec2(0.0f, -20.0f);

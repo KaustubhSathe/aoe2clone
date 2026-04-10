@@ -98,6 +98,18 @@ struct EngineState {
     TextureFrame houseStage1;
     TextureFrame houseStage2;
     TextureFrame houseStage3;
+    TextureFrame millStage0;
+    TextureFrame millStage1;
+    TextureFrame millStage2;
+    TextureFrame millStage3;
+    TextureFrame miningCampStage0;
+    TextureFrame miningCampStage1;
+    TextureFrame miningCampStage2;
+    TextureFrame miningCampStage3;
+    TextureFrame lumberCampStage0;
+    TextureFrame lumberCampStage1;
+    TextureFrame lumberCampStage2;
+    TextureFrame lumberCampStage3;
 };
 
 void rebuild_blocked_tiles(EngineState& engine, AppState& appState);

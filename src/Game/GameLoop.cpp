@@ -23,12 +23,6 @@ struct VisibleTileData {
     int gridIndex;
 };
 
-struct SpriteInstanceData {
-    glm::vec2 position;
-    glm::vec2 size;
-    float visibility = 1.0f;
-};
-
 struct ResolvedSprite {
     GLuint texture = 0;
     float sortY = 0.0f;
@@ -38,6 +32,241 @@ struct ResolvedSprite {
 namespace
 {
 constexpr int MINIMAP_UPLOAD_INTERVAL_FRAMES = 4;
+
+bool BuildingExists(const AppState& appState, EntityId buildingId)
+{
+    return appState.houses.count(buildingId) > 0 ||
+        appState.mills.count(buildingId) > 0 ||
+        appState.miningCamps.count(buildingId) > 0 ||
+        appState.lumberCamps.count(buildingId) > 0;
+}
+
+EntityId CreateQueuedBuilding(AppState& appState, BuildableBuilding buildingType, const glm::ivec2& tile, EntityId villagerId)
+{
+    switch (buildingType)
+    {
+    case BuildableBuilding::House:
+    {
+        appState.wood -= HOUSE_COST_WOOD;
+        House house;
+        house.uuid = gNextUuid++;
+        house.tile = tile;
+        house.position = tile_to_world(tile);
+        house.hp = 500;
+        house.maxHp = 500;
+        house.isUnderConstruction = true;
+        house.isGhostFoundation = true;
+        house.assignedVillagerId = villagerId;
+        const EntityId id = house.uuid;
+        appState.houses[id] = house;
+        return id;
+    }
+    case BuildableBuilding::Mill:
+    {
+        appState.wood -= MILL_COST_WOOD;
+        Mill mill;
+        mill.uuid = gNextUuid++;
+        mill.tile = tile;
+        mill.position = tile_to_world(tile);
+        mill.hp = 600;
+        mill.maxHp = 600;
+        mill.isUnderConstruction = true;
+        mill.isGhostFoundation = true;
+        mill.assignedVillagerId = villagerId;
+        const EntityId id = mill.uuid;
+        appState.mills[id] = mill;
+        return id;
+    }
+    case BuildableBuilding::MiningCamp:
+    {
+        appState.wood -= MINING_CAMP_COST_WOOD;
+        MiningCamp camp;
+        camp.uuid = gNextUuid++;
+        camp.tile = tile;
+        camp.position = tile_to_world(tile);
+        camp.hp = 600;
+        camp.maxHp = 600;
+        camp.isUnderConstruction = true;
+        camp.isGhostFoundation = true;
+        camp.assignedVillagerId = villagerId;
+        const EntityId id = camp.uuid;
+        appState.miningCamps[id] = camp;
+        return id;
+    }
+    case BuildableBuilding::LumberCamp:
+    {
+        appState.wood -= LUMBER_CAMP_COST_WOOD;
+        LumberCamp camp;
+        camp.uuid = gNextUuid++;
+        camp.tile = tile;
+        camp.position = tile_to_world(tile);
+        camp.hp = 600;
+        camp.maxHp = 600;
+        camp.isUnderConstruction = true;
+        camp.isGhostFoundation = true;
+        camp.assignedVillagerId = villagerId;
+        const EntityId id = camp.uuid;
+        appState.lumberCamps[id] = camp;
+        return id;
+    }
+    case BuildableBuilding::None:
+    default:
+        return 0;
+    }
+}
+
+glm::vec2 GetBuildingPosition(const AppState& appState, EntityId buildingId)
+{
+    if (appState.houses.count(buildingId) > 0)
+    {
+        return appState.houses.at(buildingId).position;
+    }
+    if (appState.mills.count(buildingId) > 0)
+    {
+        return appState.mills.at(buildingId).position;
+    }
+    if (appState.miningCamps.count(buildingId) > 0)
+    {
+        return appState.miningCamps.at(buildingId).position;
+    }
+    if (appState.lumberCamps.count(buildingId) > 0)
+    {
+        return appState.lumberCamps.at(buildingId).position;
+    }
+    return glm::vec2(0.0f);
+}
+
+bool IsVillagerCloseEnoughToBuild(const AppState& appState, EntityId buildingId, const glm::vec2& villagerPosition)
+{
+    return BuildingExists(appState, buildingId) &&
+        glm::length(GetBuildingPosition(appState, buildingId) - villagerPosition) <= 1.5f;
+}
+
+void ActivateGhostFoundation(EngineState& engine, AppState& appState, EntityId buildingId)
+{
+    if (appState.houses.count(buildingId) > 0)
+    {
+        House& house = appState.houses.at(buildingId);
+        if (house.isGhostFoundation)
+        {
+            house.isGhostFoundation = false;
+            rebuild_blocked_tiles(engine, appState);
+        }
+        return;
+    }
+    if (appState.mills.count(buildingId) > 0)
+    {
+        Mill& mill = appState.mills.at(buildingId);
+        if (mill.isGhostFoundation)
+        {
+            mill.isGhostFoundation = false;
+            rebuild_blocked_tiles(engine, appState);
+        }
+        return;
+    }
+    if (appState.miningCamps.count(buildingId) > 0)
+    {
+        MiningCamp& camp = appState.miningCamps.at(buildingId);
+        if (camp.isGhostFoundation)
+        {
+            camp.isGhostFoundation = false;
+            rebuild_blocked_tiles(engine, appState);
+        }
+        return;
+    }
+    if (appState.lumberCamps.count(buildingId) > 0)
+    {
+        LumberCamp& camp = appState.lumberCamps.at(buildingId);
+        if (camp.isGhostFoundation)
+        {
+            camp.isGhostFoundation = false;
+            rebuild_blocked_tiles(engine, appState);
+        }
+    }
+}
+
+bool AdvanceBuildingConstruction(AppState& appState, EntityId buildingId, float frameDeltaSeconds)
+{
+    if (appState.houses.count(buildingId) > 0)
+    {
+        House& house = appState.houses.at(buildingId);
+        if (!house.isUnderConstruction || house.buildProgress >= 1.0f)
+        {
+            return false;
+        }
+
+        house.buildProgress += (frameDeltaSeconds * 1.7f) / HOUSE_BUILD_TIME;
+        if (house.buildProgress >= 1.0f)
+        {
+            house.buildProgress = 1.0f;
+            house.isUnderConstruction = false;
+            house.assignedVillagerId = 0;
+            appState.housePopulationBonus += 5;
+            appState.maxPopulation = 5 + appState.housePopulationBonus;
+            return true;
+        }
+        return false;
+    }
+
+    if (appState.mills.count(buildingId) > 0)
+    {
+        Mill& mill = appState.mills.at(buildingId);
+        if (!mill.isUnderConstruction || mill.buildProgress >= 1.0f)
+        {
+            return false;
+        }
+
+        mill.buildProgress += (frameDeltaSeconds * 1.7f) / MILL_BUILD_TIME;
+        if (mill.buildProgress >= 1.0f)
+        {
+            mill.buildProgress = 1.0f;
+            mill.isUnderConstruction = false;
+            mill.assignedVillagerId = 0;
+            return true;
+        }
+        return false;
+    }
+
+    if (appState.miningCamps.count(buildingId) > 0)
+    {
+        MiningCamp& camp = appState.miningCamps.at(buildingId);
+        if (!camp.isUnderConstruction || camp.buildProgress >= 1.0f)
+        {
+            return false;
+        }
+
+        camp.buildProgress += (frameDeltaSeconds * 1.7f) / MINING_CAMP_BUILD_TIME;
+        if (camp.buildProgress >= 1.0f)
+        {
+            camp.buildProgress = 1.0f;
+            camp.isUnderConstruction = false;
+            camp.assignedVillagerId = 0;
+            return true;
+        }
+        return false;
+    }
+
+    if (appState.lumberCamps.count(buildingId) > 0)
+    {
+        LumberCamp& camp = appState.lumberCamps.at(buildingId);
+        if (!camp.isUnderConstruction || camp.buildProgress >= 1.0f)
+        {
+            return false;
+        }
+
+        camp.buildProgress += (frameDeltaSeconds * 1.7f) / LUMBER_CAMP_BUILD_TIME;
+        if (camp.buildProgress >= 1.0f)
+        {
+            camp.buildProgress = 1.0f;
+            camp.isUnderConstruction = false;
+            camp.assignedVillagerId = 0;
+            return true;
+        }
+        return false;
+    }
+
+    return false;
+}
 }
 
 static void TrackDrawCall(PerformanceMetricsState& metrics, GLenum mode, GLsizei vertexCount, GLsizei instanceCount = 1);
@@ -145,26 +374,92 @@ static void ApplyVisionDelta(AppState& appState, const glm::ivec2& center, int r
     }
 }
 
-static GLuint ResolveHouseTexture(const EngineState& engine, const House& house)
+static const TextureFrame* ResolveHouseTexture(const EngineState& engine, const House& house)
 {
     if (!house.isUnderConstruction)
     {
-        return engine.houseStage3.texture;
+        return &engine.houseStage3;
     }
 
     if (house.buildProgress < 0.33f)
     {
-        return engine.houseStage0.texture;
+        return &engine.houseStage0;
     }
     if (house.buildProgress < 0.66f)
     {
-        return engine.houseStage1.texture;
+        return &engine.houseStage1;
     }
     if (house.buildProgress < 1.0f)
     {
-        return engine.houseStage2.texture;
+        return &engine.houseStage2;
     }
-    return engine.houseStage3.texture;
+    return &engine.houseStage3;
+}
+
+static const TextureFrame* ResolveMillTexture(const EngineState& engine, const Mill& mill)
+{
+    if (!mill.isUnderConstruction)
+    {
+        return &engine.millStage3;
+    }
+
+    if (mill.buildProgress < 0.33f)
+    {
+        return &engine.millStage0;
+    }
+    if (mill.buildProgress < 0.66f)
+    {
+        return &engine.millStage1;
+    }
+    if (mill.buildProgress < 1.0f)
+    {
+        return &engine.millStage2;
+    }
+    return &engine.millStage3;
+}
+
+static const TextureFrame* ResolveMiningCampTexture(const EngineState& engine, const MiningCamp& miningCamp)
+{
+    if (!miningCamp.isUnderConstruction)
+    {
+        return &engine.miningCampStage3;
+    }
+
+    if (miningCamp.buildProgress < 0.33f)
+    {
+        return &engine.miningCampStage0;
+    }
+    if (miningCamp.buildProgress < 0.66f)
+    {
+        return &engine.miningCampStage1;
+    }
+    if (miningCamp.buildProgress < 1.0f)
+    {
+        return &engine.miningCampStage2;
+    }
+    return &engine.miningCampStage3;
+}
+
+static const TextureFrame* ResolveLumberCampTexture(const EngineState& engine, const LumberCamp& lumberCamp)
+{
+    if (!lumberCamp.isUnderConstruction)
+    {
+        return &engine.lumberCampStage3;
+    }
+
+    if (lumberCamp.buildProgress < 0.33f)
+    {
+        return &engine.lumberCampStage0;
+    }
+    if (lumberCamp.buildProgress < 0.66f)
+    {
+        return &engine.lumberCampStage1;
+    }
+    if (lumberCamp.buildProgress < 1.0f)
+    {
+        return &engine.lumberCampStage2;
+    }
+    return &engine.lumberCampStage3;
 }
 
 static const TextureFrame* ResolveVillagerFrame(const EngineState& engine, const Villager& villager)
@@ -323,34 +618,17 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     const glm::ivec2& tile = nextOp.targetTile;
 
                     // If building doesn't exist yet (queued build), create it now
-                    if (bId == 0 || appState.houses.count(bId) == 0)
+                    if (!BuildingExists(appState, bId))
                     {
-                        // Deduct resources when creating the building
-                        if (nextOp.buildingType == BuildableBuilding::House)
-                        {
-                            appState.wood -= HOUSE_COST_WOOD;
-                        }
-
-                        House house;
-                        house.uuid = gNextUuid++;
-                        house.tile = tile;
-                        house.position = tile_to_world(tile);
-                        house.hp = 500;
-                        house.maxHp = 500;
-                        house.isUnderConstruction = true;
-                        house.isGhostFoundation = true;
-                        house.assignedVillagerId = v.uuid;
-                        bId = house.uuid;
-                        appState.houses[house.uuid] = house;
+                        bId = CreateQueuedBuilding(appState, nextOp.buildingType, tile, v.uuid);
                         // Update the queue entry with the newly created building's ID
                         v.operationQueue.front().buildingId = bId;
                     }
 
-                    House& house = appState.houses.at(bId);
                     // Don't convert ghost to solid here - wait until villager actually starts building
 
                     float bestDist = 1e9f;
-                    glm::vec2 buildTarget = house.position;
+                    glm::vec2 buildTarget = GetBuildingPosition(appState, bId);
                     for (int dx = -1; dx <= 2; ++dx)
                     {
                         for (int dy = -1; dy <= 2; ++dy)
@@ -427,14 +705,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                     if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
                     {
                         EntityId bId = v.operationQueue.front().buildingId;
-                        if (bId != 0 && appState.houses.count(bId) > 0)
-                        {
-                            House& house = appState.houses.at(bId);
-                            if (glm::length(house.position - v.position) <= 1.5f)
-                            {
-                                arrivedAtBuilding = true;
-                            }
-                        }
+                        arrivedAtBuilding = IsVillagerCloseEnoughToBuild(appState, bId, v.position);
                     }
 
                     // Pop the next queued operation and keep moving, or stop.
@@ -558,19 +829,12 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 && !v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
             {
                 EntityId bId = v.operationQueue.front().buildingId;
-                if (bId != 0 && appState.houses.count(bId) > 0)
+                if (BuildingExists(appState, bId))
                 {
                     v.isBuilding = true;
                     v.builderFrameIndex = 0;
                     v.builderAnimTimer = 0.0f;
-
-                    // Convert ghost foundation to real when villager starts building
-                    House& house = appState.houses.at(bId);
-                    if (house.isGhostFoundation)
-                    {
-                        house.isGhostFoundation = false;
-                        rebuild_blocked_tiles(engine, appState);
-                    }
+                    ActivateGhostFoundation(engine, appState, bId);
                 }
             }
 
@@ -579,7 +843,7 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                 && v.operationQueue.front().type == OperationType::BUILD)
             {
                 EntityId bId = v.operationQueue.front().buildingId;
-                if (bId != 0 && appState.houses.count(bId) > 0)
+                if (bId != 0)
                 {
                     // Per-villager timer for builder animation
                     v.builderAnimTimer += deltaTime;
@@ -590,21 +854,13 @@ void UpdateSimulation(EngineState& engine, AppState& appState)
                         v.builderFrameIndex = (v.builderFrameIndex + 1) % WALK_FRAMES_PER_DIRECTION;
                     }
 
-                    House& house = appState.houses.at(bId);
-                    if (house.isUnderConstruction && house.buildProgress < 1.0f)
+                    bool buildingComplete = AdvanceBuildingConstruction(appState, bId, deltaTime);
+
+                    if (buildingComplete)
                     {
-                        house.buildProgress += (deltaTime * 1.7f) / HOUSE_BUILD_TIME;
-                        if (house.buildProgress >= 1.0f)
-                        {
-                            house.buildProgress = 1.0f;
-                            house.isUnderConstruction = false;
-                            house.assignedVillagerId = 0;
-                            appState.housePopulationBonus += 5;
-                            appState.maxPopulation = 5 + appState.housePopulationBonus;
-                            v.isBuilding = false;
-                            // Pop the completed BUILD op — next op in queue will be processed next frame
-                            v.operationQueue.erase(v.operationQueue.begin());
-                        }
+                        v.isBuilding = false;
+                        // Pop the completed BUILD op — next op in queue will be processed next frame
+                        v.operationQueue.erase(v.operationQueue.begin());
                     }
                 }
             }
@@ -934,6 +1190,8 @@ void RenderScene(EngineState& engine, AppState& appState)
                             pt.position.y + PINE_RENDER_OFFSET.y,
                             {glm::vec2(pt.position.x + PINE_RENDER_OFFSET.x, pt.position.y + PINE_RENDER_OFFSET.y),
                              appState.pineTreeSpriteSize,
+                             engine.pineTreeFrame->uvMin,
+                             engine.pineTreeFrame->uvMax,
                              appState.tileVisibilities[pt.tile.y * GRID_SIZE + pt.tile.x]}});
                     }
                 }
@@ -956,6 +1214,8 @@ void RenderScene(EngineState& engine, AppState& appState)
                             tc.position.y + TOWN_CENTER_RENDER_OFFSET.y,
                             {glm::vec2(px, py),
                              appState.townCenterSpriteSize,
+                             engine.townCenterFrame->uvMin,
+                             engine.townCenterFrame->uvMax,
                              appState.tileVisibilities[tcIndex]}});
                     }
                 }
@@ -972,12 +1232,84 @@ void RenderScene(EngineState& engine, AppState& appState)
                 const float py = house.position.y + HOUSE_RENDER_OFFSET.y;
                 if (isInView(px, py, 128.0f, 128.0f))
                 {
+                    const TextureFrame* houseFrame = ResolveHouseTexture(engine, house);
                     renderQueue.push_back({
-                        ResolveHouseTexture(engine, house),
+                        houseFrame->texture,
                         house.position.y + HOUSE_RENDER_OFFSET.y,
                         {glm::vec2(px, py),
                          appState.houseSpriteSize,
+                         houseFrame->uvMin,
+                         houseFrame->uvMax,
                          house.isGhostFoundation ? 0.5f : appState.tileVisibilities[houseIndex]}});
+                }
+            }
+        }
+
+        // Mills
+        for (auto& [uuid, mill] : appState.mills)
+        {
+            const int millIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
+            if (millIndex >= 0 && millIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[millIndex] > 0.0f)
+            {
+                const float px = mill.position.x + MILL_RENDER_OFFSET.x;
+                const float py = mill.position.y + MILL_RENDER_OFFSET.y;
+                if (isInView(px, py, 128.0f, 128.0f))
+                {
+                    const TextureFrame* millFrame = ResolveMillTexture(engine, mill);
+                    renderQueue.push_back({
+                        millFrame->texture,
+                        mill.position.y + MILL_RENDER_OFFSET.y,
+                        {glm::vec2(px, py),
+                         appState.millSpriteSize,
+                         millFrame->uvMin,
+                         millFrame->uvMax,
+                         mill.isGhostFoundation ? 0.5f : appState.tileVisibilities[millIndex]}});
+                }
+            }
+        }
+
+        // Mining Camps
+        for (auto& [uuid, miningCamp] : appState.miningCamps)
+        {
+            const int campIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                const float px = miningCamp.position.x + MINING_CAMP_RENDER_OFFSET.x;
+                const float py = miningCamp.position.y + MINING_CAMP_RENDER_OFFSET.y;
+                if (isInView(px, py, 128.0f, 128.0f))
+                {
+                    const TextureFrame* miningCampFrame = ResolveMiningCampTexture(engine, miningCamp);
+                    renderQueue.push_back({
+                        miningCampFrame->texture,
+                        miningCamp.position.y + MINING_CAMP_RENDER_OFFSET.y,
+                        {glm::vec2(px, py),
+                         appState.miningCampSpriteSize,
+                         miningCampFrame->uvMin,
+                         miningCampFrame->uvMax,
+                         miningCamp.isGhostFoundation ? 0.5f : appState.tileVisibilities[campIndex]}});
+                }
+            }
+        }
+
+        // Lumber Camps
+        for (auto& [uuid, lumberCamp] : appState.lumberCamps)
+        {
+            const int campIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                const float px = lumberCamp.position.x + LUMBER_CAMP_RENDER_OFFSET.x;
+                const float py = lumberCamp.position.y + LUMBER_CAMP_RENDER_OFFSET.y;
+                if (isInView(px, py, 128.0f, 128.0f))
+                {
+                    const TextureFrame* lumberCampFrame = ResolveLumberCampTexture(engine, lumberCamp);
+                    renderQueue.push_back({
+                        lumberCampFrame->texture,
+                        lumberCamp.position.y + LUMBER_CAMP_RENDER_OFFSET.y,
+                        {glm::vec2(px, py),
+                         appState.lumberCampSpriteSize,
+                         lumberCampFrame->uvMin,
+                         lumberCampFrame->uvMax,
+                         lumberCamp.isGhostFoundation ? 0.5f : appState.tileVisibilities[campIndex]}});
                 }
             }
         }
@@ -996,6 +1328,8 @@ void RenderScene(EngineState& engine, AppState& appState)
                             v.position.y,
                             {glm::vec2(v.position.x, v.position.y - TILE_HALF_HEIGHT),
                              spriteScale,
+                             activeFrame->uvMin,
+                             activeFrame->uvMax,
                              1.0f}});
                     }
                 }
@@ -1068,26 +1402,6 @@ void RenderScene(EngineState& engine, AppState& appState)
             const int tcIndex = (tc.tile.y + 2) * GRID_SIZE + (tc.tile.x + 2);
             if (tcIndex >= 0 && tcIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[tcIndex] > 0.0f) 
             {
-                glm::vec2 renderPos = tc.position + TOWN_CENTER_RENDER_OFFSET;
-                glUniform2f(engine.gpu.overlayOffsetLoc, renderPos.x, renderPos.y);
-                glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 0.0f, 0.0f, 1.0f);
-                const float hw = appState.townCenterSpriteSize.x * 0.5f;
-                const float h = appState.townCenterSpriteSize.y;
-                const float baseH = hw;
-                const float borderPolygon[] = {
-                    0.0f, 0.0f,
-                    hw, baseH * 0.5f,
-                    hw, h - baseH * 0.5f,
-                    0.0f, h,
-                    -hw, h - baseH * 0.5f,
-                    -hw, baseH * 0.5f
-                };
-                glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
-                glBindVertexArray(engine.gpu.rectVAO);
-                glDrawArrays(GL_LINE_LOOP, 0, 6);
-                TrackDrawCall(frameMetrics, GL_LINE_LOOP, 6);
-                
                 if (tc.selected)
                 {
                     // Placeholder for actual town center selection circle
@@ -1113,6 +1427,99 @@ void RenderScene(EngineState& engine, AppState& appState)
                 {
                     // Calculate center of 2x2 tile footprint with padding
                     glm::vec2 centerPos = tile_to_world(house.tile + glm::ivec2(1, 1));
+
+                    // Draw 2x2 isometric selection with padding (white color)
+                    const float padding = 10.0f;
+                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
+                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, mill] : appState.mills)
+        {
+            const int millIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
+            if (millIndex >= 0 && millIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[millIndex] > 0.0f)
+            {
+                if (mill.selected)
+                {
+                    // Calculate center of 2x2 tile footprint with padding
+                    glm::vec2 centerPos = tile_to_world(mill.tile + glm::ivec2(1, 1));
+
+                    // Draw 2x2 isometric selection with padding (white color)
+                    const float padding = 10.0f;
+                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
+                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, miningCamp] : appState.miningCamps)
+        {
+            const int campIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                if (miningCamp.selected)
+                {
+                    // Calculate center of 2x2 tile footprint with padding
+                    glm::vec2 centerPos = tile_to_world(miningCamp.tile + glm::ivec2(1, 1));
+
+                    // Draw 2x2 isometric selection with padding (white color)
+                    const float padding = 10.0f;
+                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
+                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, lumberCamp] : appState.lumberCamps)
+        {
+            const int campIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                if (lumberCamp.selected)
+                {
+                    // Calculate center of 2x2 tile footprint with padding
+                    glm::vec2 centerPos = tile_to_world(lumberCamp.tile + glm::ivec2(1, 1));
 
                     // Draw 2x2 isometric selection with padding (white color)
                     const float padding = 10.0f;
@@ -1181,45 +1588,84 @@ void RenderScene(EngineState& engine, AppState& appState)
                 && v.operationQueue.front().type == OperationType::BUILD)
             {
                 EntityId bId = v.operationQueue.front().buildingId;
-                if (bId != 0 && appState.houses.count(bId) > 0)
+                if (bId != 0)
                 {
-                const House& house = appState.houses.at(bId);
-                if (house.isUnderConstruction)
-                {
-                    // Progress bar background
-                    const float barWidth = 30.0f;
-                    const float barHeight = 4.0f;
-                    const float bgPoly[] = {
-                        -barWidth, 0.0f,
-                         barWidth, 0.0f,
-                         barWidth, barHeight,
-                        -barWidth, barHeight
-                    };
-                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(bgPoly), bgPoly);
-                    glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
-                    glUniform4f(engine.gpu.overlayColorLoc, 0.3f, 0.3f, 0.3f, 0.8f);
-                    glBindVertexArray(engine.gpu.rectVAO);
-                    glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
-                    TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
+                    bool renderedProgress = false;
+                    float progress = 0.0f;
 
-                    // Progress bar fill
-                    float progressWidth = barWidth * 2.0f * house.buildProgress;
-                    if (progressWidth > 0.0f)
+                    if (appState.houses.count(bId) > 0)
                     {
-                        const float fillPoly[] = {
+                        const House& house = appState.houses.at(bId);
+                        if (house.isUnderConstruction)
+                        {
+                            progress = house.buildProgress;
+                            renderedProgress = true;
+                        }
+                    }
+                    else if (appState.mills.count(bId) > 0)
+                    {
+                        const Mill& mill = appState.mills.at(bId);
+                        if (mill.isUnderConstruction)
+                        {
+                            progress = mill.buildProgress;
+                            renderedProgress = true;
+                        }
+                    }
+                    else if (appState.miningCamps.count(bId) > 0)
+                    {
+                        const MiningCamp& camp = appState.miningCamps.at(bId);
+                        if (camp.isUnderConstruction)
+                        {
+                            progress = camp.buildProgress;
+                            renderedProgress = true;
+                        }
+                    }
+                    else if (appState.lumberCamps.count(bId) > 0)
+                    {
+                        const LumberCamp& camp = appState.lumberCamps.at(bId);
+                        if (camp.isUnderConstruction)
+                        {
+                            progress = camp.buildProgress;
+                            renderedProgress = true;
+                        }
+                    }
+
+                    if (renderedProgress)
+                    {
+                        // Progress bar background
+                        const float barWidth = 30.0f;
+                        const float barHeight = 4.0f;
+                        const float bgPoly[] = {
                             -barWidth, 0.0f,
-                            -barWidth + progressWidth, 0.0f,
-                            -barWidth + progressWidth, barHeight,
+                             barWidth, 0.0f,
+                             barWidth, barHeight,
                             -barWidth, barHeight
                         };
-                        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(fillPoly), fillPoly);
+                        glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(bgPoly), bgPoly);
                         glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
-                        glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 0.8f, 0.0f, 1.0f);
+                        glUniform4f(engine.gpu.overlayColorLoc, 0.3f, 0.3f, 0.3f, 0.8f);
+                        glBindVertexArray(engine.gpu.rectVAO);
                         glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
                         TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
+
+                        // Progress bar fill
+                        float progressWidth = barWidth * 2.0f * progress;
+                        if (progressWidth > 0.0f)
+                        {
+                            const float fillPoly[] = {
+                                -barWidth, 0.0f,
+                                -barWidth + progressWidth, 0.0f,
+                                -barWidth + progressWidth, barHeight,
+                                -barWidth, barHeight
+                            };
+                            glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(fillPoly), fillPoly);
+                            glUniform2f(engine.gpu.overlayOffsetLoc, v.position.x, v.position.y - 40.0f);
+                            glUniform4f(engine.gpu.overlayColorLoc, 0.0f, 0.8f, 0.0f, 1.0f);
+                            glDrawArrays(GL_TRIANGLE_FAN, 0, 4);
+                            TrackDrawCall(frameMetrics, GL_TRIANGLE_FAN, 4);
+                        }
                     }
-                }
                 }
             }
 
@@ -1311,12 +1757,27 @@ void RenderScene(EngineState& engine, AppState& appState)
                 {
                     if (op.type == OperationType::BUILD)
                     {
-                        // buildingId == 0 means house not created yet, use targetTile
-                        // Otherwise use the existing house
+                        // buildingId == 0 means building not created yet, use targetTile
+                        // Otherwise use the existing building
                         glm::ivec2 buildTile = op.targetTile;
-                        if (op.buildingId != 0 && appState.houses.count(op.buildingId) > 0)
+                        if (op.buildingId != 0)
                         {
-                            buildTile = appState.houses.at(op.buildingId).tile;
+                            if (appState.houses.count(op.buildingId) > 0)
+                            {
+                                buildTile = appState.houses.at(op.buildingId).tile;
+                            }
+                            else if (appState.mills.count(op.buildingId) > 0)
+                            {
+                                buildTile = appState.mills.at(op.buildingId).tile;
+                            }
+                            else if (appState.miningCamps.count(op.buildingId) > 0)
+                            {
+                                buildTile = appState.miningCamps.at(op.buildingId).tile;
+                            }
+                            else if (appState.lumberCamps.count(op.buildingId) > 0)
+                            {
+                                buildTile = appState.lumberCamps.at(op.buildingId).tile;
+                            }
                         }
                         // Find an adjacent tile for the waypoint
                         float bestDist = 1e9f;
@@ -1864,6 +2325,96 @@ void RenderUI(EngineState& engine, AppState& appState)
                         char buildText[32];
                         snprintf(buildText, sizeof(buildText), "Progress: %.0f%%", firstSelectedHouse->buildProgress * 100.0f);
                         ImGui::ProgressBar(firstSelectedHouse->buildProgress, ImVec2(200.0f, 20.0f), buildText);
+                    }
+                    ImGui::EndGroup();
+                }
+
+                // Check if any mill is selected
+                Mill* firstSelectedMill = nullptr;
+                for (auto& [uuid, mill] : appState.mills)
+                {
+                    if (mill.selected)
+                    {
+                        firstSelectedMill = &mill;
+                        break;
+                    }
+                }
+
+                if (firstSelectedMill)
+                {
+                    ImGui::BeginGroup();
+                    ImGui::Text("Mill");
+                    char hpText[32];
+                    snprintf(hpText, sizeof(hpText), "Health: %d / %d", firstSelectedMill->hp, firstSelectedMill->maxHp);
+                    ImGui::ProgressBar(static_cast<float>(firstSelectedMill->hp) / static_cast<float>(firstSelectedMill->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                    ImGui::Text("Cost: 100 wood");
+                    ImGui::Text("Build Time: 35s");
+                    if (firstSelectedMill->isUnderConstruction)
+                    {
+                        ImGui::Text("Status: Under Construction");
+                        char buildText[32];
+                        snprintf(buildText, sizeof(buildText), "Progress: %.0f%%", firstSelectedMill->buildProgress * 100.0f);
+                        ImGui::ProgressBar(firstSelectedMill->buildProgress, ImVec2(200.0f, 20.0f), buildText);
+                    }
+                    ImGui::EndGroup();
+                }
+
+                // Check if any mining camp is selected
+                MiningCamp* firstSelectedMiningCamp = nullptr;
+                for (auto& [uuid, camp] : appState.miningCamps)
+                {
+                    if (camp.selected)
+                    {
+                        firstSelectedMiningCamp = &camp;
+                        break;
+                    }
+                }
+
+                if (firstSelectedMiningCamp)
+                {
+                    ImGui::BeginGroup();
+                    ImGui::Text("Mining Camp");
+                    char hpText[32];
+                    snprintf(hpText, sizeof(hpText), "Health: %d / %d", firstSelectedMiningCamp->hp, firstSelectedMiningCamp->maxHp);
+                    ImGui::ProgressBar(static_cast<float>(firstSelectedMiningCamp->hp) / static_cast<float>(firstSelectedMiningCamp->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                    ImGui::Text("Cost: 100 wood");
+                    ImGui::Text("Build Time: 35s");
+                    if (firstSelectedMiningCamp->isUnderConstruction)
+                    {
+                        ImGui::Text("Status: Under Construction");
+                        char buildText[32];
+                        snprintf(buildText, sizeof(buildText), "Progress: %.0f%%", firstSelectedMiningCamp->buildProgress * 100.0f);
+                        ImGui::ProgressBar(firstSelectedMiningCamp->buildProgress, ImVec2(200.0f, 20.0f), buildText);
+                    }
+                    ImGui::EndGroup();
+                }
+
+                // Check if any lumber camp is selected
+                LumberCamp* firstSelectedLumberCamp = nullptr;
+                for (auto& [uuid, camp] : appState.lumberCamps)
+                {
+                    if (camp.selected)
+                    {
+                        firstSelectedLumberCamp = &camp;
+                        break;
+                    }
+                }
+
+                if (firstSelectedLumberCamp)
+                {
+                    ImGui::BeginGroup();
+                    ImGui::Text("Lumber Camp");
+                    char hpText[32];
+                    snprintf(hpText, sizeof(hpText), "Health: %d / %d", firstSelectedLumberCamp->hp, firstSelectedLumberCamp->maxHp);
+                    ImGui::ProgressBar(static_cast<float>(firstSelectedLumberCamp->hp) / static_cast<float>(firstSelectedLumberCamp->maxHp), ImVec2(200.0f, 20.0f), hpText);
+                    ImGui::Text("Cost: 100 wood");
+                    ImGui::Text("Build Time: 35s");
+                    if (firstSelectedLumberCamp->isUnderConstruction)
+                    {
+                        ImGui::Text("Status: Under Construction");
+                        char buildText[32];
+                        snprintf(buildText, sizeof(buildText), "Progress: %.0f%%", firstSelectedLumberCamp->buildProgress * 100.0f);
+                        ImGui::ProgressBar(firstSelectedLumberCamp->buildProgress, ImVec2(200.0f, 20.0f), buildText);
                     }
                     ImGui::EndGroup();
                 }

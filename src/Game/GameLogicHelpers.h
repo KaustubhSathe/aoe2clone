@@ -12,6 +12,12 @@ bool point_in_polygon(const glm::vec2& p, const std::vector<glm::vec2>& polygon)
 std::vector<glm::vec2> get_town_center_polygon(const TownCenter& tc, const glm::vec2& spriteSize);
 bool town_center_hit_test_screen(const TownCenter& tc, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
 bool house_hit_test_screen(const House& house, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
+bool mill_hit_test_screen(const Mill& mill, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
+bool mining_camp_hit_test_screen(const MiningCamp& miningCamp, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
+bool lumber_camp_hit_test_screen(const LumberCamp& lumberCamp, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize);
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile);
 std::vector<glm::vec2> blocked_tile_translations(const AppState& appState);
 bool can_place_house(const AppState& appState, const glm::ivec2& tile);
+bool can_place_mill(const AppState& appState, const glm::ivec2& tile);
+bool can_place_mining_camp(const AppState& appState, const glm::ivec2& tile);
+bool can_place_lumber_camp(const AppState& appState, const glm::ivec2& tile);

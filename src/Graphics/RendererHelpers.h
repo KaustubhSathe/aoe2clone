@@ -17,7 +17,7 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
 // WIC Texture Loading
 std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& assetDirectory);
 std::optional<TextureFrame> load_frame_by_index(const std::filesystem::path& assetDirectory, int targetFrameIndex);
-bool load_texture_from_png(const std::filesystem::path& imagePath, TextureFrame& outFrame);
+bool load_texture_from_png(const std::filesystem::path& imagePath, TextureFrame& outFrame, bool trimTransparentBounds = false);
 
 // Cursor Creation
 GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int xhot, int yhot);

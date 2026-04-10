@@ -57,6 +57,18 @@ void clear_selection(AppState& appState)
     {
         house.selected = false;
     }
+    for (auto& [uuid, mill] : appState.mills)
+    {
+        mill.selected = false;
+    }
+    for (auto& [uuid, miningCamp] : appState.miningCamps)
+    {
+        miningCamp.selected = false;
+    }
+    for (auto& [uuid, lumberCamp] : appState.lumberCamps)
+    {
+        lumberCamp.selected = false;
+    }
     appState.selectedBuilding = BuildableBuilding::None;
     appState.cursorMode = CursorMode::Normal;
 }
@@ -114,6 +126,45 @@ bool house_hit_test_screen(const House& house, const glm::dvec2& cursorScreen, c
         static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
 }
 
+bool mill_hit_test_screen(const Mill& mill, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 millOrigin = mill.position + MILL_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(millOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(millOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
+bool mining_camp_hit_test_screen(const MiningCamp& miningCamp, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 campOrigin = miningCamp.position + MINING_CAMP_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(campOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(campOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
+bool lumber_camp_hit_test_screen(const LumberCamp& lumberCamp, const glm::dvec2& cursorScreen, const glm::vec2& spriteSize)
+{
+    const glm::vec2 campOrigin = lumberCamp.position + LUMBER_CAMP_RENDER_OFFSET;
+    const glm::vec2 screenBottomLeft = world_to_screen(campOrigin + glm::vec2(-0.5f * spriteSize.x, 0.0f));
+    const glm::vec2 screenTopRight = world_to_screen(campOrigin + glm::vec2(0.5f * spriteSize.x, spriteSize.y));
+    const float minX = std::min(screenBottomLeft.x, screenTopRight.x);
+    const float maxX = std::max(screenBottomLeft.x, screenTopRight.x);
+    const float minY = std::min(screenBottomLeft.y, screenTopRight.y);
+    const float maxY = std::max(screenBottomLeft.y, screenTopRight.y);
+    return static_cast<float>(cursorScreen.x) >= minX && static_cast<float>(cursorScreen.x) <= maxX &&
+        static_cast<float>(cursorScreen.y) >= minY && static_cast<float>(cursorScreen.y) <= maxY;
+}
+
 bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
 {
     for (const auto& [uuid, tree] : appState.pineTrees)
@@ -133,6 +184,33 @@ bool is_tile_blocked(const AppState& appState, const glm::ivec2& tile)
         if (house.isGhostFoundation) continue; // Ghost foundations don't block
         if (tile.x >= house.tile.x && tile.x < house.tile.x + 2 &&
             tile.y >= house.tile.y && tile.y < house.tile.y + 2)
+        {
+            return true;
+        }
+    }
+    for (const auto& [uuid, mill] : appState.mills)
+    {
+        if (mill.isGhostFoundation) continue;
+        if (tile.x >= mill.tile.x && tile.x < mill.tile.x + 2 &&
+            tile.y >= mill.tile.y && tile.y < mill.tile.y + 2)
+        {
+            return true;
+        }
+    }
+    for (const auto& [uuid, miningCamp] : appState.miningCamps)
+    {
+        if (miningCamp.isGhostFoundation) continue;
+        if (tile.x >= miningCamp.tile.x && tile.x < miningCamp.tile.x + 2 &&
+            tile.y >= miningCamp.tile.y && tile.y < miningCamp.tile.y + 2)
+        {
+            return true;
+        }
+    }
+    for (const auto& [uuid, lumberCamp] : appState.lumberCamps)
+    {
+        if (lumberCamp.isGhostFoundation) continue;
+        if (tile.x >= lumberCamp.tile.x && tile.x < lumberCamp.tile.x + 2 &&
+            tile.y >= lumberCamp.tile.y && tile.y < lumberCamp.tile.y + 2)
         {
             return true;
         }
@@ -168,10 +246,79 @@ std::vector<glm::vec2> blocked_tile_translations(const AppState& appState)
             }
         }
     }
+    for (const auto& [uuid, mill] : appState.mills)
+    {
+        if (mill.isGhostFoundation) continue;
+        for (int dx = 0; dx < 2; dx++)
+        {
+            for (int dy = 0; dy < 2; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(mill.tile + glm::ivec2(dx, dy)));
+            }
+        }
+    }
+    for (const auto& [uuid, miningCamp] : appState.miningCamps)
+    {
+        if (miningCamp.isGhostFoundation) continue;
+        for (int dx = 0; dx < 2; dx++)
+        {
+            for (int dy = 0; dy < 2; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(miningCamp.tile + glm::ivec2(dx, dy)));
+            }
+        }
+    }
+    for (const auto& [uuid, lumberCamp] : appState.lumberCamps)
+    {
+        if (lumberCamp.isGhostFoundation) continue;
+        for (int dx = 0; dx < 2; dx++)
+        {
+            for (int dy = 0; dy < 2; dy++)
+            {
+                blockedTiles.push_back(tile_to_world(lumberCamp.tile + glm::ivec2(dx, dy)));
+            }
+        }
+    }
     return blockedTiles;
 }
 
 bool can_place_house(const AppState& appState, const glm::ivec2& tile)
+{
+    if (tile.x < 0 || tile.x >= GRID_SIZE - 1 || tile.y < 0 || tile.y >= GRID_SIZE - 1)
+    {
+        return false;
+    }
+    return !is_tile_blocked(appState, tile) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 0)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(0, 1)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 1));
+}
+
+bool can_place_mill(const AppState& appState, const glm::ivec2& tile)
+{
+    if (tile.x < 0 || tile.x >= GRID_SIZE - 1 || tile.y < 0 || tile.y >= GRID_SIZE - 1)
+    {
+        return false;
+    }
+    return !is_tile_blocked(appState, tile) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 0)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(0, 1)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 1));
+}
+
+bool can_place_mining_camp(const AppState& appState, const glm::ivec2& tile)
+{
+    if (tile.x < 0 || tile.x >= GRID_SIZE - 1 || tile.y < 0 || tile.y >= GRID_SIZE - 1)
+    {
+        return false;
+    }
+    return !is_tile_blocked(appState, tile) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 0)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(0, 1)) &&
+           !is_tile_blocked(appState, tile + glm::ivec2(1, 1));
+}
+
+bool can_place_lumber_camp(const AppState& appState, const glm::ivec2& tile)
 {
     if (tile.x < 0 || tile.x >= GRID_SIZE - 1 || tile.y < 0 || tile.y >= GRID_SIZE - 1)
     {

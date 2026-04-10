@@ -7,6 +7,75 @@
 #include <imgui.h>
 #include <algorithm>
 
+namespace
+{
+void ClearBuildingAssignment(AppState& appState, EntityId buildingId)
+{
+    if (buildingId == 0)
+    {
+        return;
+    }
+
+    if (appState.houses.count(buildingId) > 0)
+    {
+        appState.houses.at(buildingId).assignedVillagerId = 0;
+    }
+    else if (appState.mills.count(buildingId) > 0)
+    {
+        appState.mills.at(buildingId).assignedVillagerId = 0;
+    }
+    else if (appState.miningCamps.count(buildingId) > 0)
+    {
+        appState.miningCamps.at(buildingId).assignedVillagerId = 0;
+    }
+    else if (appState.lumberCamps.count(buildingId) > 0)
+    {
+        appState.lumberCamps.at(buildingId).assignedVillagerId = 0;
+    }
+}
+
+void ResetBuildingAfterAbort(AppState& appState, EntityId buildingId)
+{
+    if (buildingId == 0)
+    {
+        return;
+    }
+
+    if (appState.houses.count(buildingId) > 0)
+    {
+        House& house = appState.houses.at(buildingId);
+        house.isUnderConstruction = true;
+        house.isGhostFoundation = true;
+        house.buildProgress = 0.0f;
+        house.assignedVillagerId = 0;
+    }
+    else if (appState.mills.count(buildingId) > 0)
+    {
+        Mill& mill = appState.mills.at(buildingId);
+        mill.isUnderConstruction = true;
+        mill.isGhostFoundation = true;
+        mill.buildProgress = 0.0f;
+        mill.assignedVillagerId = 0;
+    }
+    else if (appState.miningCamps.count(buildingId) > 0)
+    {
+        MiningCamp& camp = appState.miningCamps.at(buildingId);
+        camp.isUnderConstruction = true;
+        camp.isGhostFoundation = true;
+        camp.buildProgress = 0.0f;
+        camp.assignedVillagerId = 0;
+    }
+    else if (appState.lumberCamps.count(buildingId) > 0)
+    {
+        LumberCamp& camp = appState.lumberCamps.at(buildingId);
+        camp.isUnderConstruction = true;
+        camp.isGhostFoundation = true;
+        camp.buildProgress = 0.0f;
+        camp.assignedVillagerId = 0;
+    }
+}
+}
+
 static void update_pending_build_tile(const glm::dvec2& cursorScreen)
 {
     if (gAppState == nullptr)
@@ -358,14 +427,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                 if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
                                 {
                                     EntityId oldBuildingId = v.operationQueue.front().buildingId;
-                                    if (oldBuildingId != 0 && gAppState->houses.count(oldBuildingId) > 0)
-                                    {
-                                        House& oldHouse = gAppState->houses.at(oldBuildingId);
-                                        oldHouse.isUnderConstruction = true;
-                                        oldHouse.isGhostFoundation = true;
-                                        oldHouse.buildProgress = 0.0f;
-                                        oldHouse.assignedVillagerId = 0;
-                                    }
+                                    ResetBuildingAfterAbort(*gAppState, oldBuildingId);
                                 }
                                 v.isBuilding = false;
                             }
@@ -376,6 +438,504 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                             buildOp.buildingId = house.uuid;
                             buildOp.targetTile = tile;
                             buildOp.targetPosition = glm::vec2(0.0f); // Will be set when processing
+                            v.operationQueue.push_back(buildOp);
+
+                            gAppState->selectedBuilding = BuildableBuilding::None;
+                            gAppState->cursorMode = CursorMode::Normal;
+                            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                            gAppState->selection.dragging = false;
+                            gAppState->selection.moved = false;
+                            return;
+                        }
+                    }
+                }
+
+                // MILL BUILDING
+                if (gAppState->selectedBuilding == BuildableBuilding::Mill)
+                {
+                    if (gAppState->wood >= MILL_COST_WOOD)
+                    {
+                        EntityId villagerUUID = 0;
+                        for (auto& [uuid, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                villagerUUID = uuid;
+                                break;
+                            }
+                        }
+
+                        if (villagerUUID != 0)
+                        {
+                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+                            if (!shiftHeld)
+                            {
+                                gAppState->villagers.at(villagerUUID).operationQueue.clear();
+                            }
+
+                            // Check if any villager is standing on the building tiles
+                            std::vector<EntityId> villagersOnBuildingTiles;
+                            for (auto& [uuid, vCheck] : gAppState->villagers)
+                            {
+                                if (vCheck.isGarrisoned) continue;
+                                const std::optional<glm::ivec2> vTileOpt = world_to_tile(vCheck.position);
+                                if (vTileOpt.has_value())
+                                {
+                                    glm::ivec2 vTile = vTileOpt.value();
+                                    bool onBuilding = (vTile.x >= tile.x && vTile.x < tile.x + 2 &&
+                                                      vTile.y >= tile.y && vTile.y < tile.y + 2);
+                                    if (onBuilding)
+                                    {
+                                        villagersOnBuildingTiles.push_back(uuid);
+                                    }
+                                }
+                            }
+
+                            // Move villagers off building tiles first
+                            for (EntityId vUUID : villagersOnBuildingTiles)
+                            {
+                                Villager& v = gAppState->villagers.at(vUUID);
+
+                                float bestDist = 1e9f;
+                                glm::vec2 moveTarget = v.position;
+
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(tile.x + dx, tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                moveTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
+
+                                if (path.size() > 1)
+                                {
+                                    for (size_t i = path.size(); i-- > 1; )
+                                    {
+                                        QueuedOperation op;
+                                        op.type = OperationType::WALK;
+                                        op.targetPosition = path[i];
+                                        v.operationQueue.insert(v.operationQueue.begin(), op);
+                                    }
+                                }
+                                else if (path.size() == 1)
+                                {
+                                    QueuedOperation op;
+                                    op.type = OperationType::WALK;
+                                    op.targetPosition = path[0];
+                                    v.operationQueue.insert(v.operationQueue.begin(), op);
+                                }
+                            }
+
+                            Villager& v = gAppState->villagers.at(villagerUUID);
+
+                            const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
+
+                            // If shift is held, queue this build - create ghost mill immediately
+                            if (shiftHeldForQueue)
+                            {
+                                gAppState->wood -= MILL_COST_WOOD;
+
+                                Mill queuedMill;
+                                queuedMill.uuid = gNextUuid++;
+                                queuedMill.tile = tile;
+                                queuedMill.position = tile_to_world(tile);
+                                queuedMill.hp = 600;
+                                queuedMill.maxHp = 600;
+                                queuedMill.isUnderConstruction = true;
+                                queuedMill.isGhostFoundation = true;
+                                queuedMill.assignedVillagerId = villagerUUID;
+                                gAppState->mills[queuedMill.uuid] = queuedMill;
+
+                                QueuedOperation buildOp;
+                                buildOp.type = OperationType::BUILD;
+                                buildOp.buildingId = queuedMill.uuid;
+                                buildOp.targetTile = tile;
+                                buildOp.buildingType = BuildableBuilding::Mill;
+                                buildOp.targetPosition = glm::vec2(0.0f);
+                                v.operationQueue.push_back(buildOp);
+
+                                gAppState->selectedBuilding = BuildableBuilding::None;
+                                gAppState->cursorMode = CursorMode::Normal;
+                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                                gAppState->selection.dragging = false;
+                                gAppState->selection.moved = false;
+                                return;
+                            }
+
+                            // Not queueing - create mill and start building now
+                            gAppState->wood -= MILL_COST_WOOD;
+
+                            Mill mill;
+                            mill.uuid = gNextUuid++;
+                            mill.tile = tile;
+                            mill.position = tile_to_world(tile);
+                            mill.hp = 600;
+                            mill.maxHp = 600;
+                            mill.isUnderConstruction = true;
+                            mill.isGhostFoundation = true;
+                            mill.assignedVillagerId = villagerUUID;
+                            gAppState->mills[mill.uuid] = mill;
+
+                            // If villager is already building, abort old build and start new one
+                            if (v.isBuilding)
+                            {
+                                if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
+                                {
+                                    EntityId oldBuildingId = v.operationQueue.front().buildingId;
+                                    ResetBuildingAfterAbort(*gAppState, oldBuildingId);
+                                }
+                                v.isBuilding = false;
+                            }
+
+                            QueuedOperation buildOp;
+                            buildOp.type = OperationType::BUILD;
+                            buildOp.buildingId = mill.uuid;
+                            buildOp.targetTile = tile;
+                            buildOp.targetPosition = glm::vec2(0.0f);
+                            v.operationQueue.push_back(buildOp);
+
+                            gAppState->selectedBuilding = BuildableBuilding::None;
+                            gAppState->cursorMode = CursorMode::Normal;
+                            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                            gAppState->selection.dragging = false;
+                            gAppState->selection.moved = false;
+                            return;
+                        }
+                    }
+                }
+
+                // MINING CAMP BUILDING
+                if (gAppState->selectedBuilding == BuildableBuilding::MiningCamp)
+                {
+                    if (gAppState->wood >= MINING_CAMP_COST_WOOD)
+                    {
+                        EntityId villagerUUID = 0;
+                        for (auto& [uuid, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                villagerUUID = uuid;
+                                break;
+                            }
+                        }
+
+                        if (villagerUUID != 0)
+                        {
+                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+                            if (!shiftHeld)
+                            {
+                                gAppState->villagers.at(villagerUUID).operationQueue.clear();
+                            }
+
+                            // Check if any villager is standing on the building tiles
+                            std::vector<EntityId> villagersOnBuildingTiles;
+                            for (auto& [uuid, vCheck] : gAppState->villagers)
+                            {
+                                if (vCheck.isGarrisoned) continue;
+                                const std::optional<glm::ivec2> vTileOpt = world_to_tile(vCheck.position);
+                                if (vTileOpt.has_value())
+                                {
+                                    glm::ivec2 vTile = vTileOpt.value();
+                                    bool onBuilding = (vTile.x >= tile.x && vTile.x < tile.x + 2 &&
+                                                      vTile.y >= tile.y && vTile.y < tile.y + 2);
+                                    if (onBuilding)
+                                    {
+                                        villagersOnBuildingTiles.push_back(uuid);
+                                    }
+                                }
+                            }
+
+                            // Move villagers off building tiles first
+                            for (EntityId vUUID : villagersOnBuildingTiles)
+                            {
+                                Villager& v = gAppState->villagers.at(vUUID);
+
+                                float bestDist = 1e9f;
+                                glm::vec2 moveTarget = v.position;
+
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(tile.x + dx, tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                moveTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
+
+                                if (path.size() > 1)
+                                {
+                                    for (size_t i = path.size(); i-- > 1; )
+                                    {
+                                        QueuedOperation op;
+                                        op.type = OperationType::WALK;
+                                        op.targetPosition = path[i];
+                                        v.operationQueue.insert(v.operationQueue.begin(), op);
+                                    }
+                                }
+                                else if (path.size() == 1)
+                                {
+                                    QueuedOperation op;
+                                    op.type = OperationType::WALK;
+                                    op.targetPosition = path[0];
+                                    v.operationQueue.insert(v.operationQueue.begin(), op);
+                                }
+                            }
+
+                            Villager& v = gAppState->villagers.at(villagerUUID);
+
+                            const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
+
+                            // If shift is held, queue this build - create ghost mining camp immediately
+                            if (shiftHeldForQueue)
+                            {
+                                gAppState->wood -= MINING_CAMP_COST_WOOD;
+
+                                MiningCamp queuedMiningCamp;
+                                queuedMiningCamp.uuid = gNextUuid++;
+                                queuedMiningCamp.tile = tile;
+                                queuedMiningCamp.position = tile_to_world(tile);
+                                queuedMiningCamp.hp = 600;
+                                queuedMiningCamp.maxHp = 600;
+                                queuedMiningCamp.isUnderConstruction = true;
+                                queuedMiningCamp.isGhostFoundation = true;
+                                queuedMiningCamp.assignedVillagerId = villagerUUID;
+                                gAppState->miningCamps[queuedMiningCamp.uuid] = queuedMiningCamp;
+
+                                QueuedOperation buildOp;
+                                buildOp.type = OperationType::BUILD;
+                                buildOp.buildingId = queuedMiningCamp.uuid;
+                                buildOp.targetTile = tile;
+                                buildOp.buildingType = BuildableBuilding::MiningCamp;
+                                buildOp.targetPosition = glm::vec2(0.0f);
+                                v.operationQueue.push_back(buildOp);
+
+                                gAppState->selectedBuilding = BuildableBuilding::None;
+                                gAppState->cursorMode = CursorMode::Normal;
+                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                                gAppState->selection.dragging = false;
+                                gAppState->selection.moved = false;
+                                return;
+                            }
+
+                            // Not queueing - create mining camp and start building now
+                            gAppState->wood -= MINING_CAMP_COST_WOOD;
+
+                            MiningCamp miningCamp;
+                            miningCamp.uuid = gNextUuid++;
+                            miningCamp.tile = tile;
+                            miningCamp.position = tile_to_world(tile);
+                            miningCamp.hp = 600;
+                            miningCamp.maxHp = 600;
+                            miningCamp.isUnderConstruction = true;
+                            miningCamp.isGhostFoundation = true;
+                            miningCamp.assignedVillagerId = villagerUUID;
+                            gAppState->miningCamps[miningCamp.uuid] = miningCamp;
+
+                            // If villager is already building, abort old build and start new one
+                            if (v.isBuilding)
+                            {
+                                if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
+                                {
+                                    EntityId oldBuildingId = v.operationQueue.front().buildingId;
+                                    ResetBuildingAfterAbort(*gAppState, oldBuildingId);
+                                }
+                                v.isBuilding = false;
+                            }
+
+                            QueuedOperation buildOp;
+                            buildOp.type = OperationType::BUILD;
+                            buildOp.buildingId = miningCamp.uuid;
+                            buildOp.targetTile = tile;
+                            buildOp.targetPosition = glm::vec2(0.0f);
+                            v.operationQueue.push_back(buildOp);
+
+                            gAppState->selectedBuilding = BuildableBuilding::None;
+                            gAppState->cursorMode = CursorMode::Normal;
+                            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                            gAppState->selection.dragging = false;
+                            gAppState->selection.moved = false;
+                            return;
+                        }
+                    }
+                }
+
+                // LUMBER CAMP BUILDING
+                if (gAppState->selectedBuilding == BuildableBuilding::LumberCamp)
+                {
+                    if (gAppState->wood >= LUMBER_CAMP_COST_WOOD)
+                    {
+                        EntityId villagerUUID = 0;
+                        for (auto& [uuid, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                villagerUUID = uuid;
+                                break;
+                            }
+                        }
+
+                        if (villagerUUID != 0)
+                        {
+                            const bool shiftHeld = (mods & GLFW_MOD_SHIFT) != 0;
+                            if (!shiftHeld)
+                            {
+                                gAppState->villagers.at(villagerUUID).operationQueue.clear();
+                            }
+
+                            // Check if any villager is standing on the building tiles
+                            std::vector<EntityId> villagersOnBuildingTiles;
+                            for (auto& [uuid, vCheck] : gAppState->villagers)
+                            {
+                                if (vCheck.isGarrisoned) continue;
+                                const std::optional<glm::ivec2> vTileOpt = world_to_tile(vCheck.position);
+                                if (vTileOpt.has_value())
+                                {
+                                    glm::ivec2 vTile = vTileOpt.value();
+                                    bool onBuilding = (vTile.x >= tile.x && vTile.x < tile.x + 2 &&
+                                                      vTile.y >= tile.y && vTile.y < tile.y + 2);
+                                    if (onBuilding)
+                                    {
+                                        villagersOnBuildingTiles.push_back(uuid);
+                                    }
+                                }
+                            }
+
+                            // Move villagers off building tiles first
+                            for (EntityId vUUID : villagersOnBuildingTiles)
+                            {
+                                Villager& v = gAppState->villagers.at(vUUID);
+
+                                float bestDist = 1e9f;
+                                glm::vec2 moveTarget = v.position;
+
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(tile.x + dx, tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                moveTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                std::vector<glm::vec2> path = find_path(*gAppState, v.position, moveTarget);
+
+                                if (path.size() > 1)
+                                {
+                                    for (size_t i = path.size(); i-- > 1; )
+                                    {
+                                        QueuedOperation op;
+                                        op.type = OperationType::WALK;
+                                        op.targetPosition = path[i];
+                                        v.operationQueue.insert(v.operationQueue.begin(), op);
+                                    }
+                                }
+                                else if (path.size() == 1)
+                                {
+                                    QueuedOperation op;
+                                    op.type = OperationType::WALK;
+                                    op.targetPosition = path[0];
+                                    v.operationQueue.insert(v.operationQueue.begin(), op);
+                                }
+                            }
+
+                            Villager& v = gAppState->villagers.at(villagerUUID);
+
+                            const bool shiftHeldForQueue = (mods & GLFW_MOD_SHIFT) != 0;
+
+                            // If shift is held, queue this build - create ghost lumber camp immediately
+                            if (shiftHeldForQueue)
+                            {
+                                gAppState->wood -= LUMBER_CAMP_COST_WOOD;
+
+                                LumberCamp queuedLumberCamp;
+                                queuedLumberCamp.uuid = gNextUuid++;
+                                queuedLumberCamp.tile = tile;
+                                queuedLumberCamp.position = tile_to_world(tile);
+                                queuedLumberCamp.hp = 600;
+                                queuedLumberCamp.maxHp = 600;
+                                queuedLumberCamp.isUnderConstruction = true;
+                                queuedLumberCamp.isGhostFoundation = true;
+                                queuedLumberCamp.assignedVillagerId = villagerUUID;
+                                gAppState->lumberCamps[queuedLumberCamp.uuid] = queuedLumberCamp;
+
+                                QueuedOperation buildOp;
+                                buildOp.type = OperationType::BUILD;
+                                buildOp.buildingId = queuedLumberCamp.uuid;
+                                buildOp.targetTile = tile;
+                                buildOp.buildingType = BuildableBuilding::LumberCamp;
+                                buildOp.targetPosition = glm::vec2(0.0f);
+                                v.operationQueue.push_back(buildOp);
+
+                                gAppState->selectedBuilding = BuildableBuilding::None;
+                                gAppState->cursorMode = CursorMode::Normal;
+                                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+                                gAppState->selection.dragging = false;
+                                gAppState->selection.moved = false;
+                                return;
+                            }
+
+                            // Not queueing - create lumber camp and start building now
+                            gAppState->wood -= LUMBER_CAMP_COST_WOOD;
+
+                            LumberCamp lumberCamp;
+                            lumberCamp.uuid = gNextUuid++;
+                            lumberCamp.tile = tile;
+                            lumberCamp.position = tile_to_world(tile);
+                            lumberCamp.hp = 600;
+                            lumberCamp.maxHp = 600;
+                            lumberCamp.isUnderConstruction = true;
+                            lumberCamp.isGhostFoundation = true;
+                            lumberCamp.assignedVillagerId = villagerUUID;
+                            gAppState->lumberCamps[lumberCamp.uuid] = lumberCamp;
+
+                            // If villager is already building, abort old build and start new one
+                            if (v.isBuilding)
+                            {
+                                if (!v.operationQueue.empty() && v.operationQueue.front().type == OperationType::BUILD)
+                                {
+                                    EntityId oldBuildingId = v.operationQueue.front().buildingId;
+                                    ResetBuildingAfterAbort(*gAppState, oldBuildingId);
+                                }
+                                v.isBuilding = false;
+                            }
+
+                            QueuedOperation buildOp;
+                            buildOp.type = OperationType::BUILD;
+                            buildOp.buildingId = lumberCamp.uuid;
+                            buildOp.targetTile = tile;
+                            buildOp.targetPosition = glm::vec2(0.0f);
                             v.operationQueue.push_back(buildOp);
 
                             gAppState->selectedBuilding = BuildableBuilding::None;
@@ -462,13 +1022,67 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     }
                     else
                     {
-                        for (auto& [uuid, v] : gAppState->villagers)
+                        EntityId clickedMillUUID = 0;
+                        for (auto& [uuid, mill] : gAppState->mills)
                         {
-                            if (v.isGarrisoned) continue;
-                            if (villager_hit_test_screen(v.position, gAppState->cursorScreen))
+                            const int millIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
+                            if (gAppState->tileVisibilities[millIndex] > 0.0f && mill_hit_test_screen(mill, gAppState->cursorScreen, gAppState->millSpriteSize))
                             {
-                                v.selected = true;
-                                break; // Select only one villager on a single click
+                                clickedMillUUID = uuid;
+                                break;
+                            }
+                        }
+
+                        if (clickedMillUUID != 0)
+                        {
+                            gAppState->mills.at(clickedMillUUID).selected = true;
+                        }
+                        else
+                        {
+                            EntityId clickedMiningCampUUID = 0;
+                            for (auto& [uuid, miningCamp] : gAppState->miningCamps)
+                            {
+                                const int miningCampIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
+                                if (gAppState->tileVisibilities[miningCampIndex] > 0.0f && mining_camp_hit_test_screen(miningCamp, gAppState->cursorScreen, gAppState->miningCampSpriteSize))
+                                {
+                                    clickedMiningCampUUID = uuid;
+                                    break;
+                                }
+                            }
+
+                            if (clickedMiningCampUUID != 0)
+                            {
+                                gAppState->miningCamps.at(clickedMiningCampUUID).selected = true;
+                            }
+                            else
+                            {
+                                EntityId clickedLumberCampUUID = 0;
+                                for (auto& [uuid, lumberCamp] : gAppState->lumberCamps)
+                                {
+                                    const int lumberCampIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
+                                    if (gAppState->tileVisibilities[lumberCampIndex] > 0.0f && lumber_camp_hit_test_screen(lumberCamp, gAppState->cursorScreen, gAppState->lumberCampSpriteSize))
+                                    {
+                                        clickedLumberCampUUID = uuid;
+                                        break;
+                                    }
+                                }
+
+                                if (clickedLumberCampUUID != 0)
+                                {
+                                    gAppState->lumberCamps.at(clickedLumberCampUUID).selected = true;
+                                }
+                                else
+                                {
+                                    for (auto& [uuid, v] : gAppState->villagers)
+                                    {
+                                        if (v.isGarrisoned) continue;
+                                        if (villager_hit_test_screen(v.position, gAppState->cursorScreen))
+                                        {
+                                            v.selected = true;
+                                            break; // Select only one villager on a single click
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -693,10 +1307,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                                         && v.operationQueue.front().type == OperationType::BUILD)
                                     {
                                         EntityId oldBId = v.operationQueue.front().buildingId;
-                                        if (oldBId != 0 && gAppState->houses.count(oldBId) > 0)
-                                        {
-                                            gAppState->houses.at(oldBId).assignedVillagerId = 0;
-                                        }
+                                        ClearBuildingAssignment(*gAppState, oldBId);
                                     }
                                     // Clear queued operations and reset building state since we're overriding
                                     v.operationQueue.clear();
@@ -794,6 +1405,378 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                     }
                 }
 
+                // Check if right-clicking on an incomplete mill to resume building
+                for (auto& [millUUID, mill] : gAppState->mills)
+                {
+                    const int millTileIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
+                    if (mill.isUnderConstruction && gAppState->tileVisibilities[millTileIndex] > 0.0f && mill_hit_test_screen(mill, gAppState->cursorScreen, gAppState->millSpriteSize))
+                    {
+                        // Find a selected villager to assign to building
+                        for (auto& [vUUID, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                // Check if villager is already building something else or has queued operations
+                                bool villagerBusy = v.isBuilding || !v.operationQueue.empty();
+                                if (villagerBusy)
+                                {
+                                    // If shift is held, queue this build instead of overriding
+                                    if ((mods & GLFW_MOD_SHIFT) != 0)
+                                    {
+                                        // Queue the build operation to villager's queue
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = millUUID;
+                                        buildOp.targetTile = mill.tile;
+                                        buildOp.buildingType = BuildableBuilding::None; // Mill already exists
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                        continue;
+                                    }
+
+                                    // Without shift, cancel previous building and start new one
+                                    if (v.isBuilding && !v.operationQueue.empty()
+                                        && v.operationQueue.front().type == OperationType::BUILD)
+                                    {
+                                        EntityId oldBId = v.operationQueue.front().buildingId;
+                                        ClearBuildingAssignment(*gAppState, oldBId);
+                                    }
+                                    // Clear queued operations and reset building state since we're overriding
+                                    v.operationQueue.clear();
+                                    v.isBuilding = false;
+                                }
+
+                                // Set up building task
+                                mill.assignedVillagerId = vUUID;
+
+                                // Find adjacent tile to building
+                                float bestDist = 1e9f;
+                                glm::vec2 buildTarget = mill.position;
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(mill.tile.x + dx, mill.tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                buildTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // If villager is not already at build target, set up movement
+                                const float distToTarget = glm::length(buildTarget - v.position);
+                                v.operationQueue.clear();
+                                if (distToTarget > 1.0f)
+                                {
+                                    std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
+                                    if (path.size() > 1)
+                                    {
+                                        v.targetPosition = path[1];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                        v.isBuilding = false;
+                                        for (size_t j = 2; j < path.size(); ++j)
+                                        {
+                                            QueuedOperation op;
+                                            op.type = OperationType::WALK;
+                                            op.targetPosition = path[j];
+                                            v.operationQueue.push_back(op);
+                                        }
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = millUUID;
+                                        buildOp.targetTile = mill.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else if (path.size() == 1)
+                                    {
+                                        v.targetPosition = path[0];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                                        v.isBuilding = false;
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = millUUID;
+                                        buildOp.targetTile = mill.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else
+                                    {
+                                        v.moving = false;
+                                        v.isBuilding = true;
+                                        v.builderFrameIndex = 0;
+                                        v.builderAnimTimer = 0.0f;
+                                    }
+                                }
+                                else
+                                {
+                                    v.moving = false;
+                                    v.isBuilding = true;
+                                    v.builderFrameIndex = 0;
+                                    v.builderAnimTimer = 0.0f;
+                                }
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Check if right-clicking on an incomplete mining camp to resume building
+                for (auto& [miningCampUUID, miningCamp] : gAppState->miningCamps)
+                {
+                    const int miningCampTileIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
+                    if (miningCamp.isUnderConstruction && gAppState->tileVisibilities[miningCampTileIndex] > 0.0f && mining_camp_hit_test_screen(miningCamp, gAppState->cursorScreen, gAppState->miningCampSpriteSize))
+                    {
+                        // Find a selected villager to assign to building
+                        for (auto& [vUUID, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                // Check if villager is already building something else or has queued operations
+                                bool villagerBusy = v.isBuilding || !v.operationQueue.empty();
+                                if (villagerBusy)
+                                {
+                                    // If shift is held, queue this build instead of overriding
+                                    if ((mods & GLFW_MOD_SHIFT) != 0)
+                                    {
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = miningCampUUID;
+                                        buildOp.targetTile = miningCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                        continue;
+                                    }
+
+                                    if (v.isBuilding && !v.operationQueue.empty()
+                                        && v.operationQueue.front().type == OperationType::BUILD)
+                                    {
+                                        EntityId oldBId = v.operationQueue.front().buildingId;
+                                        ClearBuildingAssignment(*gAppState, oldBId);
+                                    }
+                                    v.operationQueue.clear();
+                                    v.isBuilding = false;
+                                }
+
+                                miningCamp.assignedVillagerId = vUUID;
+
+                                float bestDist = 1e9f;
+                                glm::vec2 buildTarget = miningCamp.position;
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(miningCamp.tile.x + dx, miningCamp.tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                buildTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                const float distToTarget = glm::length(buildTarget - v.position);
+                                v.operationQueue.clear();
+                                if (distToTarget > 1.0f)
+                                {
+                                    std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
+                                    if (path.size() > 1)
+                                    {
+                                        v.targetPosition = path[1];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                        v.isBuilding = false;
+                                        for (size_t j = 2; j < path.size(); ++j)
+                                        {
+                                            QueuedOperation op;
+                                            op.type = OperationType::WALK;
+                                            op.targetPosition = path[j];
+                                            v.operationQueue.push_back(op);
+                                        }
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = miningCampUUID;
+                                        buildOp.targetTile = miningCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else if (path.size() == 1)
+                                    {
+                                        v.targetPosition = path[0];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                                        v.isBuilding = false;
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = miningCampUUID;
+                                        buildOp.targetTile = miningCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else
+                                    {
+                                        v.moving = false;
+                                        v.isBuilding = true;
+                                        v.builderFrameIndex = 0;
+                                        v.builderAnimTimer = 0.0f;
+                                    }
+                                }
+                                else
+                                {
+                                    v.moving = false;
+                                    v.isBuilding = true;
+                                    v.builderFrameIndex = 0;
+                                    v.builderAnimTimer = 0.0f;
+                                }
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                }
+
+                // Check if right-clicking on an incomplete lumber camp to resume building
+                for (auto& [lumberCampUUID, lumberCamp] : gAppState->lumberCamps)
+                {
+                    const int lumberCampTileIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
+                    if (lumberCamp.isUnderConstruction && gAppState->tileVisibilities[lumberCampTileIndex] > 0.0f && lumber_camp_hit_test_screen(lumberCamp, gAppState->cursorScreen, gAppState->lumberCampSpriteSize))
+                    {
+                        // Find a selected villager to assign to building
+                        for (auto& [vUUID, v] : gAppState->villagers)
+                        {
+                            if (v.selected && !v.isGarrisoned)
+                            {
+                                // Check if villager is already building something else or has queued operations
+                                bool villagerBusy = v.isBuilding || !v.operationQueue.empty();
+                                if (villagerBusy)
+                                {
+                                    // If shift is held, queue this build instead of overriding
+                                    if ((mods & GLFW_MOD_SHIFT) != 0)
+                                    {
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = lumberCampUUID;
+                                        buildOp.targetTile = lumberCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                        continue;
+                                    }
+
+                                    if (v.isBuilding && !v.operationQueue.empty()
+                                        && v.operationQueue.front().type == OperationType::BUILD)
+                                    {
+                                        EntityId oldBId = v.operationQueue.front().buildingId;
+                                        ClearBuildingAssignment(*gAppState, oldBId);
+                                    }
+                                    v.operationQueue.clear();
+                                    v.isBuilding = false;
+                                }
+
+                                lumberCamp.assignedVillagerId = vUUID;
+
+                                float bestDist = 1e9f;
+                                glm::vec2 buildTarget = lumberCamp.position;
+                                for (int dx = -1; dx <= 2; ++dx)
+                                {
+                                    for (int dy = -1; dy <= 2; ++dy)
+                                    {
+                                        if (dx >= 0 && dx <= 1 && dy >= 0 && dy <= 1) continue;
+                                        glm::ivec2 p(lumberCamp.tile.x + dx, lumberCamp.tile.y + dy);
+                                        if (p.x >= 0 && p.x < GRID_SIZE && p.y >= 0 && p.y < GRID_SIZE && !is_tile_blocked(*gAppState, p))
+                                        {
+                                            float dist = glm::length(tile_to_world(p) - v.position);
+                                            if (dist < bestDist)
+                                            {
+                                                bestDist = dist;
+                                                buildTarget = tile_to_world(p);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                const float distToTarget = glm::length(buildTarget - v.position);
+                                v.operationQueue.clear();
+                                if (distToTarget > 1.0f)
+                                {
+                                    std::vector<glm::vec2> path = find_path(*gAppState, v.position, buildTarget);
+                                    if (path.size() > 1)
+                                    {
+                                        v.targetPosition = path[1];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = true;
+                                        v.isBuilding = false;
+                                        for (size_t j = 2; j < path.size(); ++j)
+                                        {
+                                            QueuedOperation op;
+                                            op.type = OperationType::WALK;
+                                            op.targetPosition = path[j];
+                                            v.operationQueue.push_back(op);
+                                        }
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = lumberCampUUID;
+                                        buildOp.targetTile = lumberCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else if (path.size() == 1)
+                                    {
+                                        v.targetPosition = path[0];
+                                        v.facingDirection = glm::normalize(v.targetPosition - v.position);
+                                        v.moving = !glm::all(glm::equal(v.targetPosition, v.position));
+                                        v.isBuilding = false;
+                                        QueuedOperation buildOp;
+                                        buildOp.type = OperationType::BUILD;
+                                        buildOp.buildingId = lumberCampUUID;
+                                        buildOp.targetTile = lumberCamp.tile;
+                                        buildOp.buildingType = BuildableBuilding::None;
+                                        buildOp.targetPosition = glm::vec2(0.0f);
+                                        v.operationQueue.push_back(buildOp);
+                                    }
+                                    else
+                                    {
+                                        v.moving = false;
+                                        v.isBuilding = true;
+                                        v.builderFrameIndex = 0;
+                                        v.builderAnimTimer = 0.0f;
+                                    }
+                                }
+                                else
+                                {
+                                    v.moving = false;
+                                    v.isBuilding = true;
+                                    v.builderFrameIndex = 0;
+                                    v.builderAnimTimer = 0.0f;
+                                }
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                }
+
                 const glm::vec2 worldTarget = screen_to_world(gAppState->cursorScreen);
                 const std::optional<glm::ivec2> targetTile = world_to_tile(worldTarget);
                 if (!targetTile.has_value() || is_tile_blocked(*gAppState, *targetTile))
@@ -833,10 +1816,7 @@ void mouse_button_callback(GLFWwindow* window, int button, int action, int mods)
                         && v.operationQueue.front().type == OperationType::BUILD)
                     {
                         EntityId bId = v.operationQueue.front().buildingId;
-                        if (bId != 0 && gAppState->houses.count(bId) > 0)
-                        {
-                            gAppState->houses.at(bId).assignedVillagerId = 0;
-                        }
+                        ClearBuildingAssignment(*gAppState, bId);
                         v.isBuilding = false;
                     }
 
@@ -1037,6 +2017,26 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
             gAppState->cursorMode = CursorMode::BuildMil;
             gAppState->selectedBuilding = BuildableBuilding::None;
         }
+        else if (gAppState->cursorMode == CursorMode::BuildEco)
+        {
+            gAppState->selectedBuilding = BuildableBuilding::Mill;
+        }
+    }
+
+    if (key == GLFW_KEY_E && action == GLFW_PRESS)
+    {
+        if (gAppState->cursorMode == CursorMode::BuildEco)
+        {
+            gAppState->selectedBuilding = BuildableBuilding::MiningCamp;
+        }
+    }
+
+    if (key == GLFW_KEY_R && action == GLFW_PRESS)
+    {
+        if (gAppState->cursorMode == CursorMode::BuildEco)
+        {
+            gAppState->selectedBuilding = BuildableBuilding::LumberCamp;
+        }
     }
 
     if (key == GLFW_KEY_G && action == GLFW_PRESS)
@@ -1082,6 +2082,93 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 
             // Remove the house
             gAppState->houses.erase(houseUUID);
+            rebuild_blocked_tiles(*gEngine, *gAppState);
+        }
+
+        // Delete selected mills
+        std::vector<EntityId> millsToDelete;
+        for (auto& [uuid, mill] : gAppState->mills)
+        {
+            if (mill.selected)
+            {
+                millsToDelete.push_back(uuid);
+            }
+        }
+        for (EntityId millUUID : millsToDelete)
+        {
+            Mill& mill = gAppState->mills.at(millUUID);
+            // Reset villager if it was building this mill
+            if (mill.assignedVillagerId != 0 && gAppState->villagers.count(mill.assignedVillagerId) > 0)
+            {
+                Villager& v = gAppState->villagers.at(mill.assignedVillagerId);
+                v.isBuilding = false;
+                v.operationQueue.erase(
+                    std::remove_if(v.operationQueue.begin(), v.operationQueue.end(),
+                        [millUUID](const QueuedOperation& op) {
+                            return op.type == OperationType::BUILD && op.buildingId == millUUID;
+                        }),
+                    v.operationQueue.end()
+                );
+            }
+            gAppState->mills.erase(millUUID);
+            rebuild_blocked_tiles(*gEngine, *gAppState);
+        }
+
+        // Delete selected mining camps
+        std::vector<EntityId> miningCampsToDelete;
+        for (auto& [uuid, miningCamp] : gAppState->miningCamps)
+        {
+            if (miningCamp.selected)
+            {
+                miningCampsToDelete.push_back(uuid);
+            }
+        }
+        for (EntityId miningCampUUID : miningCampsToDelete)
+        {
+            MiningCamp& miningCamp = gAppState->miningCamps.at(miningCampUUID);
+            // Reset villager if it was building this mining camp
+            if (miningCamp.assignedVillagerId != 0 && gAppState->villagers.count(miningCamp.assignedVillagerId) > 0)
+            {
+                Villager& v = gAppState->villagers.at(miningCamp.assignedVillagerId);
+                v.isBuilding = false;
+                v.operationQueue.erase(
+                    std::remove_if(v.operationQueue.begin(), v.operationQueue.end(),
+                        [miningCampUUID](const QueuedOperation& op) {
+                            return op.type == OperationType::BUILD && op.buildingId == miningCampUUID;
+                        }),
+                    v.operationQueue.end()
+                );
+            }
+            gAppState->miningCamps.erase(miningCampUUID);
+            rebuild_blocked_tiles(*gEngine, *gAppState);
+        }
+
+        // Delete selected lumber camps
+        std::vector<EntityId> lumberCampsToDelete;
+        for (auto& [uuid, lumberCamp] : gAppState->lumberCamps)
+        {
+            if (lumberCamp.selected)
+            {
+                lumberCampsToDelete.push_back(uuid);
+            }
+        }
+        for (EntityId lumberCampUUID : lumberCampsToDelete)
+        {
+            LumberCamp& lumberCamp = gAppState->lumberCamps.at(lumberCampUUID);
+            // Reset villager if it was building this lumber camp
+            if (lumberCamp.assignedVillagerId != 0 && gAppState->villagers.count(lumberCamp.assignedVillagerId) > 0)
+            {
+                Villager& v = gAppState->villagers.at(lumberCamp.assignedVillagerId);
+                v.isBuilding = false;
+                v.operationQueue.erase(
+                    std::remove_if(v.operationQueue.begin(), v.operationQueue.end(),
+                        [lumberCampUUID](const QueuedOperation& op) {
+                            return op.type == OperationType::BUILD && op.buildingId == lumberCampUUID;
+                        }),
+                    v.operationQueue.end()
+                );
+            }
+            gAppState->lumberCamps.erase(lumberCampUUID);
             rebuild_blocked_tiles(*gEngine, *gAppState);
         }
     }
