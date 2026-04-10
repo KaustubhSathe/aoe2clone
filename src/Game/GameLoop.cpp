@@ -1341,6 +1341,119 @@ void RenderScene(EngineState& engine, AppState& appState)
         });
         frameMetrics.visibleSpriteCount = static_cast<int>(renderQueue.size());
 
+        // --- Phase 0: Draw Building Selection Highlights (under sprites) ---
+        glUseProgram(engine.gpu.overlayShaderProgram);
+        glUniformMatrix4fv(engine.gpu.overlayProjLoc, 1, GL_FALSE, glm::value_ptr(projection));
+        glUniformMatrix4fv(engine.gpu.overlayViewLoc, 1, GL_FALSE, glm::value_ptr(view));
+
+        for (const auto& [uuid, house] : appState.houses)
+        {
+            const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
+            if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
+            {
+                if (house.selected)
+                {
+                    glm::vec2 centerPos = tile_to_world(house.tile + glm::ivec2(1, 1));
+                    const float hw = TILE_HALF_WIDTH * 1.6f;
+                    const float hh = TILE_HALF_HEIGHT * 1.6f;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, mill] : appState.mills)
+        {
+            const int millIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
+            if (millIndex >= 0 && millIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[millIndex] > 0.0f)
+            {
+                if (mill.selected)
+                {
+                    glm::vec2 centerPos = tile_to_world(mill.tile + glm::ivec2(1, 1));
+                    const float hw = TILE_HALF_WIDTH * 1.6f;
+                    const float hh = TILE_HALF_HEIGHT * 1.6f;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, miningCamp] : appState.miningCamps)
+        {
+            const int campIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                if (miningCamp.selected)
+                {
+                    glm::vec2 centerPos = tile_to_world(miningCamp.tile + glm::ivec2(1, 1));
+                    const float hw = TILE_HALF_WIDTH * 1.6f;
+                    const float hh = TILE_HALF_HEIGHT * 1.6f;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
+        for (const auto& [uuid, lumberCamp] : appState.lumberCamps)
+        {
+            const int campIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
+            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
+            {
+                if (lumberCamp.selected)
+                {
+                    glm::vec2 centerPos = tile_to_world(lumberCamp.tile + glm::ivec2(1, 1));
+                    const float hw = TILE_HALF_WIDTH * 1.6f;
+                    const float hh = TILE_HALF_HEIGHT * 1.6f;
+                    const float borderPolygon[] = {
+                        0.0f,    hh,
+                        hw,     0.0f,
+                        0.0f,    -hh,
+                        -hw,    0.0f
+                    };
+                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
+                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
+                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
+                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
+                    glBindVertexArray(engine.gpu.rectVAO);
+                    glDrawArrays(GL_LINE_LOOP, 0, 4);
+                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
+                }
+            }
+        }
+
         // --- Phase 1: Draw Sprites ---
         // Keep the existing depth order, but collapse contiguous same-texture runs
         // into a single instanced draw call.
@@ -1414,130 +1527,6 @@ void RenderScene(EngineState& engine, AppState& appState)
                     glBindVertexArray(engine.gpu.tileVAO);
                     glDrawArrays(GL_TRIANGLES, 0, 6);
                     TrackDrawCall(frameMetrics, GL_TRIANGLES, 6);
-                }
-            }
-        }
-
-        for (const auto& [uuid, house] : appState.houses)
-        {
-            const int houseIndex = house.tile.y * GRID_SIZE + house.tile.x;
-            if (houseIndex >= 0 && houseIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[houseIndex] > 0.0f)
-            {
-                if (house.selected)
-                {
-                    // Calculate center of 2x2 tile footprint with padding
-                    glm::vec2 centerPos = tile_to_world(house.tile + glm::ivec2(1, 1));
-
-                    // Draw 2x2 isometric selection with padding (white color)
-                    const float padding = 10.0f;
-                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
-                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
-                    const float borderPolygon[] = {
-                        0.0f,    hh,
-                        hw,     0.0f,
-                        0.0f,    -hh,
-                        -hw,    0.0f
-                    };
-                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
-                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
-                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-                    glBindVertexArray(engine.gpu.rectVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, 4);
-                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
-                }
-            }
-        }
-
-        for (const auto& [uuid, mill] : appState.mills)
-        {
-            const int millIndex = mill.tile.y * GRID_SIZE + mill.tile.x;
-            if (millIndex >= 0 && millIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[millIndex] > 0.0f)
-            {
-                if (mill.selected)
-                {
-                    // Calculate center of 2x2 tile footprint with padding
-                    glm::vec2 centerPos = tile_to_world(mill.tile + glm::ivec2(1, 1));
-
-                    // Draw 2x2 isometric selection with padding (white color)
-                    const float padding = 10.0f;
-                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
-                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
-                    const float borderPolygon[] = {
-                        0.0f,    hh,
-                        hw,     0.0f,
-                        0.0f,    -hh,
-                        -hw,    0.0f
-                    };
-                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
-                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
-                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-                    glBindVertexArray(engine.gpu.rectVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, 4);
-                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
-                }
-            }
-        }
-
-        for (const auto& [uuid, miningCamp] : appState.miningCamps)
-        {
-            const int campIndex = miningCamp.tile.y * GRID_SIZE + miningCamp.tile.x;
-            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
-            {
-                if (miningCamp.selected)
-                {
-                    // Calculate center of 2x2 tile footprint with padding
-                    glm::vec2 centerPos = tile_to_world(miningCamp.tile + glm::ivec2(1, 1));
-
-                    // Draw 2x2 isometric selection with padding (white color)
-                    const float padding = 10.0f;
-                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
-                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
-                    const float borderPolygon[] = {
-                        0.0f,    hh,
-                        hw,     0.0f,
-                        0.0f,    -hh,
-                        -hw,    0.0f
-                    };
-                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
-                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
-                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-                    glBindVertexArray(engine.gpu.rectVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, 4);
-                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
-                }
-            }
-        }
-
-        for (const auto& [uuid, lumberCamp] : appState.lumberCamps)
-        {
-            const int campIndex = lumberCamp.tile.y * GRID_SIZE + lumberCamp.tile.x;
-            if (campIndex >= 0 && campIndex < GRID_SIZE * GRID_SIZE && appState.tileVisibilities[campIndex] > 0.0f)
-            {
-                if (lumberCamp.selected)
-                {
-                    // Calculate center of 2x2 tile footprint with padding
-                    glm::vec2 centerPos = tile_to_world(lumberCamp.tile + glm::ivec2(1, 1));
-
-                    // Draw 2x2 isometric selection with padding (white color)
-                    const float padding = 10.0f;
-                    const float hw = (TILE_HALF_WIDTH * 2.0f) + padding;
-                    const float hh = (TILE_HALF_HEIGHT * 2.0f) + padding;
-                    const float borderPolygon[] = {
-                        0.0f,    hh,
-                        hw,     0.0f,
-                        0.0f,    -hh,
-                        -hw,    0.0f
-                    };
-                    glBindBuffer(GL_ARRAY_BUFFER, engine.gpu.rectVBO);
-                    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(borderPolygon), borderPolygon);
-                    glUniform2f(engine.gpu.overlayOffsetLoc, centerPos.x, centerPos.y);
-                    glUniform4f(engine.gpu.overlayColorLoc, 1.0f, 1.0f, 1.0f, 1.0f);
-                    glBindVertexArray(engine.gpu.rectVAO);
-                    glDrawArrays(GL_LINE_LOOP, 0, 4);
-                    TrackDrawCall(frameMetrics, GL_LINE_LOOP, 4);
                 }
             }
         }
