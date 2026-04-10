@@ -7,6 +7,60 @@
 #include <imgui.h>
 #include <algorithm>
 
+static void update_pending_build_tile(const glm::dvec2& cursorScreen)
+{
+    if (gAppState == nullptr)
+    {
+        return;
+    }
+
+    gAppState->cursorScreen = cursorScreen;
+
+    bool anyVillagerSelected = false;
+    for (const auto& [uuid, v] : gAppState->villagers)
+    {
+        if (v.selected && !v.isGarrisoned)
+        {
+            anyVillagerSelected = true;
+            break;
+        }
+    }
+
+    if (anyVillagerSelected &&
+        (gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) &&
+        gAppState->selectedBuilding != BuildableBuilding::None)
+    {
+        glm::vec2 worldPos = screen_to_world(glm::vec2(static_cast<float>(cursorScreen.x), static_cast<float>(cursorScreen.y)));
+        std::optional<glm::ivec2> tileOpt = world_to_tile(worldPos);
+        if (tileOpt.has_value())
+        {
+            glm::ivec2 tile = tileOpt.value();
+            if (tile.x >= 0 && tile.x < GRID_SIZE - 1 && tile.y >= 0 && tile.y < GRID_SIZE - 1)
+            {
+                const int tileIndex = tile.y * GRID_SIZE + tile.x;
+                const int tileIndex1 = tile.y * GRID_SIZE + (tile.x + 1);
+                const int tileIndex2 = (tile.y + 1) * GRID_SIZE + tile.x;
+                const int tileIndex3 = (tile.y + 1) * GRID_SIZE + (tile.x + 1);
+                const bool allExplored = (gAppState->tileVisibilities[tileIndex] > 0.0f &&
+                                          gAppState->tileVisibilities[tileIndex1] > 0.0f &&
+                                          gAppState->tileVisibilities[tileIndex2] > 0.0f &&
+                                          gAppState->tileVisibilities[tileIndex3] > 0.0f);
+
+                gAppState->pendingBuildTile = tile;
+                gAppState->canBuildAtPendingTile = allExplored &&
+                                                   !is_tile_blocked(*gAppState, tile) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 0)) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(0, 1)) &&
+                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 1));
+                return;
+            }
+        }
+    }
+
+    gAppState->pendingBuildTile = glm::ivec2(-1, -1);
+    gAppState->canBuildAtPendingTile = false;
+}
+
 // =============================================================================
 // GLFW CALLBACKS
 // Called by GLFW on input and window events. They are registered in main()
@@ -25,6 +79,7 @@ void processInput(GLFWwindow* window)
     // Get current mouse position
     double mouseX, mouseY;
     glfwGetCursorPos(window, &mouseX, &mouseY);
+    update_pending_build_tile(glm::dvec2(mouseX, mouseY));
 
     // Calculate how close to each edge (0.0 = at threshold, 1.0 = at corner)
     float leftEdge = (EDGE_THRESHOLD - static_cast<float>(mouseX)) / EDGE_THRESHOLD;
@@ -92,7 +147,7 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
         return;
     }
 
-    gAppState->cursorScreen = glm::dvec2(xpos, ypos);
+    update_pending_build_tile(glm::dvec2(xpos, ypos));
     if (gAppState->selection.dragging)
     {
         gAppState->selection.currentScreen = gAppState->cursorScreen;
@@ -101,60 +156,6 @@ void cursor_position_callback(GLFWwindow* window, double xpos, double ypos)
         {
             gAppState->selection.moved = true;
         }
-    }
-
-    // Update pending build tile for highlighting (only when a villager is selected)
-    bool anyVillagerSelected = false;
-    for (const auto& [uuid, v] : gAppState->villagers)
-    {
-        if (v.selected && !v.isGarrisoned)
-        {
-            anyVillagerSelected = true;
-            break;
-        }
-    }
-    if (anyVillagerSelected && (gAppState->cursorMode == CursorMode::BuildEco || gAppState->cursorMode == CursorMode::BuildMil) && gAppState->selectedBuilding != BuildableBuilding::None)
-    {
-        glm::vec2 worldPos = screen_to_world(glm::vec2(static_cast<float>(xpos), static_cast<float>(ypos)));
-        std::optional<glm::ivec2> tileOpt = world_to_tile(worldPos);
-        if (tileOpt.has_value())
-        {
-            glm::ivec2 tile = tileOpt.value();
-            if (tile.x >= 0 && tile.x < GRID_SIZE - 1 && tile.y >= 0 && tile.y < GRID_SIZE - 1)
-            {
-                // Check if all 4 tiles of the 2x2 building footprint are explored (visibility > 0)
-                int tileIndex = tile.y * GRID_SIZE + tile.x;
-                int tileIndex1 = tile.y * GRID_SIZE + (tile.x + 1);
-                int tileIndex2 = (tile.y + 1) * GRID_SIZE + tile.x;
-                int tileIndex3 = (tile.y + 1) * GRID_SIZE + (tile.x + 1);
-                bool allExplored = (gAppState->tileVisibilities[tileIndex] > 0.0f &&
-                                   gAppState->tileVisibilities[tileIndex1] > 0.0f &&
-                                   gAppState->tileVisibilities[tileIndex2] > 0.0f &&
-                                   gAppState->tileVisibilities[tileIndex3] > 0.0f);
-
-                gAppState->pendingBuildTile = tile;
-                gAppState->canBuildAtPendingTile = allExplored &&
-                                                   !is_tile_blocked(*gAppState, tile) &&
-                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 0)) &&
-                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(0, 1)) &&
-                                                   !is_tile_blocked(*gAppState, tile + glm::ivec2(1, 1));
-            }
-            else
-            {
-                gAppState->pendingBuildTile = glm::ivec2(-1, -1);
-                gAppState->canBuildAtPendingTile = false;
-            }
-        }
-        else
-        {
-            gAppState->pendingBuildTile = glm::ivec2(-1, -1);
-            gAppState->canBuildAtPendingTile = false;
-        }
-    }
-    else
-    {
-        gAppState->pendingBuildTile = glm::ivec2(-1, -1);
-        gAppState->canBuildAtPendingTile = false;
     }
 }
 

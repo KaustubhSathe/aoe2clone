@@ -12,7 +12,7 @@ float zoom = 1.0f;
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
 
-AppState* gAppState = nullptr;
-GLFWcursor* gGarrisonCursor = nullptr;
-EngineState* gEngine = nullptr;
+AppState *gAppState = nullptr;
+GLFWcursor *gGarrisonCursor = nullptr;
+EngineState *gEngine = nullptr;
 EntityId gNextUuid = 1;
