@@ -1,0 +1,20 @@
+{
+  "outputDirectory": "dist",
+  "rewrites": [
+    { "source": "/", "destination": "/aoe2.html" }
+  ],
+  "headers": [
+    {
+      "source": "/aoe2.wasm",
+      "headers": [
+        { "key": "Content-Type", "value": "application/wasm" }
+      ]
+    },
+    {
+      "source": "/aoe2.data",
+      "headers": [
+        { "key": "Content-Type", "value": "application/octet-stream" }
+      ]
+    }
+  ]
+}
