@@ -1111,7 +1111,9 @@ void RenderScene(EngineState& engine, AppState& appState)
         // Render tiles with frustum culling
         glBindVertexArray(engine.gpu.tileVAO);
         glUniform4f(engine.gpu.tileColorLoc, 0.2f, 0.6f, 0.2f, 1.0f);
+#ifndef __EMSCRIPTEN__
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
         glDrawArraysInstanced(GL_TRIANGLES, 0, 6, visibleCount);
         TrackDrawCall(frameMetrics, GL_TRIANGLES, 6, visibleCount);
 

@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en-us">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AoE2 Clone</title>
+  <style>
+    body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+    canvas { display: block; width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+  <script>
+    var Module = {
+      canvas: document.getElementById('canvas')
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

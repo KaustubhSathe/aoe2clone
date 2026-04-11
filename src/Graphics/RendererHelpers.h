@@ -5,7 +5,12 @@
 #include <vector>
 #include <optional>
 #include <glm/glm.hpp>
+
+#ifdef __EMSCRIPTEN__
+#include <GLES3/gl3.h>
+#else
 #include <glad/glad.h>
+#endif
 #include <GLFW/glfw3.h>
 
 // OpenGL Shader Compilation
@@ -14,7 +19,7 @@ GLuint compile_shader(GLenum type, const char* source);
 GLuint create_program(const char* vertexSource, const char* fragmentSource);
 GLuint create_program_from_files(const std::filesystem::path& vertexPath, const std::filesystem::path& fragmentPath);
 
-// WIC Texture Loading
+// Texture Loading
 std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& assetDirectory);
 std::optional<TextureFrame> load_frame_by_index(const std::filesystem::path& assetDirectory, int targetFrameIndex);
 bool load_texture_from_png(const std::filesystem::path& imagePath, TextureFrame& outFrame, bool trimTransparentBounds = false);

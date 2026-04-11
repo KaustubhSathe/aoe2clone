@@ -6,3 +6,4 @@
 cmake.log
 debug.log
 /build_codex
+/build_web

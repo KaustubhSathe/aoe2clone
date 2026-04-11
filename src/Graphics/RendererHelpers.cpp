@@ -1,22 +1,23 @@
 #include "RendererHelpers.h"
 #include "../Core/Constants.h"
 
+#ifdef _WIN32
 #define NOMINMAX
 #include <Windows.h>
 #include <wincodec.h>
+#endif
+
 #include <algorithm>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 
-template <typename T>
-void safe_release(T*& pointer)
-{
-    if (pointer != nullptr)
-    {
-        pointer->Release();
-        pointer = nullptr;
-    }
-}
+#define STB_IMAGE_IMPLEMENTATION
+#include "../../third_party/stb/stb_image.h"
+
+// ============================================================================
+// Shader helpers (cross-platform)
+// ============================================================================
 
 GLuint compile_shader(GLenum type, const char* source)
 {
@@ -28,6 +29,14 @@ GLuint compile_shader(GLenum type, const char* source)
     glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
     if (success == GL_FALSE)
     {
+        GLint logLength = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+        std::string infoLog(static_cast<size_t>(std::max(logLength, 1)), '\0');
+        if (logLength > 0)
+        {
+            glGetShaderInfoLog(shader, logLength, nullptr, infoLog.data());
+        }
+        std::cerr << "Shader compile failed: " << infoLog << std::endl;
         glDeleteShader(shader);
         return 0;
     }
@@ -61,6 +70,14 @@ GLuint create_program(const char* vertexSource, const char* fragmentSource)
     glGetProgramiv(program, GL_LINK_STATUS, &success);
     if (success == GL_FALSE)
     {
+        GLint logLength = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+        std::string infoLog(static_cast<size_t>(std::max(logLength, 1)), '\0');
+        if (logLength > 0)
+        {
+            glGetProgramInfoLog(program, logLength, nullptr, infoLog.data());
+        }
+        std::cerr << "Program link failed: " << infoLog << std::endl;
         glDeleteProgram(program);
         glDeleteShader(vertexShader);
         glDeleteShader(fragmentShader);
@@ -77,11 +94,34 @@ std::string read_file_to_string(const std::filesystem::path& path)
     std::ifstream file(path);
     if (!file.is_open())
     {
+        std::cerr << "Failed to open file: " << path << std::endl;
         return "";
     }
     std::stringstream buffer;
     buffer << file.rdbuf();
-    return buffer.str();
+    std::string source = buffer.str();
+
+#ifdef __EMSCRIPTEN__
+    // Replace GLSL version for WebGL2 compatibility
+    const std::string version330 = "#version 330 core";
+    const std::string version300es = "#version 300 es";
+    size_t pos = source.find(version330);
+    if (pos != std::string::npos)
+    {
+        source.replace(pos, version330.length(), version300es);
+    }
+    // Add precision qualifier after version for fragment shaders
+    if (path.extension() == ".fs")
+    {
+        pos = source.find('\n', pos);
+        if (pos != std::string::npos)
+        {
+            source.insert(pos + 1, "precision mediump float;\n");
+        }
+    }
+#endif
+
+    return source;
 }
 
 GLuint create_program_from_files(const std::filesystem::path& vertexPath, const std::filesystem::path& fragmentPath)
@@ -90,92 +130,26 @@ GLuint create_program_from_files(const std::filesystem::path& vertexPath, const 
     std::string fragmentSource = read_file_to_string(fragmentPath);
     if (vertexSource.empty() || fragmentSource.empty())
     {
+        std::cerr << "Shader source missing. Vertex: " << vertexPath << " Fragment: " << fragmentPath << std::endl;
         return 0;
     }
     return create_program(vertexSource.c_str(), fragmentSource.c_str());
 }
+
+// ============================================================================
+// Texture loading — stb_image (cross-platform)
+// ============================================================================
 
 bool load_texture_from_png(
     const std::filesystem::path& imagePath,
     TextureFrame& outFrame,
     bool trimTransparentBounds)
 {
-    IWICImagingFactory* imagingFactory = nullptr;
-    const HRESULT factoryResult = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&imagingFactory));
-    if (FAILED(factoryResult))
+    int width = 0, height = 0, channels = 0;
+    // Request RGBA output
+    unsigned char* pixels = stbi_load(imagePath.string().c_str(), &width, &height, &channels, 4);
+    if (!pixels)
     {
-        return false;
-    }
-
-    IWICBitmapDecoder* decoder = nullptr;
-    IWICBitmapFrameDecode* frame = nullptr;
-    IWICFormatConverter* converter = nullptr;
-
-    const HRESULT decoderResult = imagingFactory->CreateDecoderFromFilename(
-        imagePath.c_str(),
-        nullptr,
-        GENERIC_READ,
-        WICDecodeMetadataCacheOnDemand,
-        &decoder);
-    if (FAILED(decoderResult))
-    {
-        safe_release(imagingFactory);
-        return false;
-    }
-
-    HRESULT result = decoder->GetFrame(0, &frame);
-    if (FAILED(result))
-    {
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return false;
-    }
-
-    result = imagingFactory->CreateFormatConverter(&converter);
-    if (FAILED(result))
-    {
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return false;
-    }
-
-    result = converter->Initialize(
-        frame,
-        GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone,
-        nullptr,
-        0.0,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(result))
-    {
-        safe_release(converter);
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return false;
-    }
-
-    UINT width = 0;
-    UINT height = 0;
-    converter->GetSize(&width, &height);
-
-    std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-    result = converter->CopyPixels(
-        nullptr,
-        width * 4,
-        static_cast<UINT>(pixels.size()),
-        pixels.data());
-    if (FAILED(result))
-    {
-        safe_release(converter);
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
         return false;
     }
 
@@ -193,9 +167,9 @@ bool load_texture_from_png(
         static_cast<GLsizei>(width),
         static_cast<GLsizei>(height),
         0,
-        GL_BGRA,
+        GL_RGBA,
         GL_UNSIGNED_BYTE,
-        pixels.data());
+        pixels);
 
     outFrame.width = static_cast<int>(width);
     outFrame.height = static_cast<int>(height);
@@ -204,20 +178,20 @@ bool load_texture_from_png(
 
     if (trimTransparentBounds && width > 0 && height > 0)
     {
-        UINT minX = width;
-        UINT minY = height;
-        UINT maxX = 0;
-        UINT maxY = 0;
+        int minX = width;
+        int minY = height;
+        int maxX = 0;
+        int maxY = 0;
         bool foundOpaquePixel = false;
 
-        for (UINT y = 0; y < height; ++y)
+        for (int y = 0; y < height; ++y)
         {
-            for (UINT x = 0; x < width; ++x)
+            for (int x = 0; x < width; ++x)
             {
                 const size_t pixelIndex = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
-                const unsigned char blue = pixels[pixelIndex + 0];
+                const unsigned char red = pixels[pixelIndex + 0];
                 const unsigned char green = pixels[pixelIndex + 1];
-                const unsigned char red = pixels[pixelIndex + 2];
+                const unsigned char blue = pixels[pixelIndex + 2];
                 const unsigned char alpha = pixels[pixelIndex + 3];
                 const bool isDebugRedBorder = (alpha > 8 && red == 255 && green == 0 && blue == 0);
                 if (alpha > 8 && !isDebugRedBorder)
@@ -242,10 +216,7 @@ bool load_texture_from_png(
         }
     }
 
-    safe_release(converter);
-    safe_release(frame);
-    safe_release(decoder);
-    safe_release(imagingFactory);
+    stbi_image_free(pixels);
     return true;
 }
 
@@ -273,17 +244,6 @@ std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& asse
         return {};
     }
 
-    IWICImagingFactory* imagingFactory = nullptr;
-    const HRESULT factoryResult = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&imagingFactory));
-    if (FAILED(factoryResult))
-    {
-        return {};
-    }
-
     std::vector<TextureFrame> frames;
     frames.reserve(pngFiles.size());
 
@@ -303,8 +263,6 @@ std::vector<TextureFrame> load_frame_directory(const std::filesystem::path& asse
             frames.push_back(frameData);
         }
     }
-
-    safe_release(imagingFactory);
 
     std::sort(
         frames.begin(),
@@ -341,6 +299,10 @@ std::optional<TextureFrame> load_frame_by_index(const std::filesystem::path& ass
     return std::nullopt;
 }
 
+// ============================================================================
+// Animation direction helpers (cross-platform)
+// ============================================================================
+
 int facing_index_from_direction(const glm::vec2& direction, int frameCount)
 {
     if (frameCount <= 0) return 0;
@@ -373,109 +335,26 @@ int walk_animation_index(const glm::vec2& direction, int gaitFrame, int frameCou
     return rawIndex % frameCount;
 }
 
+// ============================================================================
+// Cursor creation
+// ============================================================================
+
 GLFWcursor* create_cursor_from_png(const std::filesystem::path& imagePath, int xhot, int yhot)
 {
-    IWICImagingFactory* imagingFactory = nullptr;
-    const HRESULT factoryResult = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(&imagingFactory));
-    if (FAILED(factoryResult))
+    int width = 0, height = 0, channels = 0;
+    unsigned char* pixels = stbi_load(imagePath.string().c_str(), &width, &height, &channels, 4);
+    if (!pixels)
     {
         return nullptr;
     }
 
-    IWICBitmapDecoder* decoder = nullptr;
-    IWICBitmapFrameDecode* frame = nullptr;
-    IWICFormatConverter* converter = nullptr;
+    GLFWimage glfwImage;
+    glfwImage.width = static_cast<int>(width);
+    glfwImage.height = static_cast<int>(height);
+    glfwImage.pixels = pixels;
 
-    const HRESULT decoderResult = imagingFactory->CreateDecoderFromFilename(
-        imagePath.c_str(),
-        nullptr,
-        GENERIC_READ,
-        WICDecodeMetadataCacheOnDemand,
-        &decoder);
-    if (FAILED(decoderResult))
-    {
-        safe_release(imagingFactory);
-        return nullptr;
-    }
+    GLFWcursor* cursor = glfwCreateCursor(&glfwImage, xhot, yhot);
 
-    HRESULT result = decoder->GetFrame(0, &frame);
-    if (FAILED(result))
-    {
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return nullptr;
-    }
-
-    result = imagingFactory->CreateFormatConverter(&converter);
-    if (FAILED(result))
-    {
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return nullptr;
-    }
-
-    result = converter->Initialize(
-        frame,
-        GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone,
-        nullptr,
-        0.0,
-        WICBitmapPaletteTypeCustom);
-    if (FAILED(result))
-    {
-        safe_release(converter);
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return nullptr;
-    }
-
-    UINT width = 0;
-    UINT height = 0;
-    converter->GetSize(&width, &height);
-
-    std::vector<unsigned char> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
-    result = converter->CopyPixels(
-        nullptr,
-        width * 4,
-        static_cast<UINT>(pixels.size()),
-        pixels.data());
-    if (FAILED(result))
-    {
-        safe_release(converter);
-        safe_release(frame);
-        safe_release(decoder);
-        safe_release(imagingFactory);
-        return nullptr;
-    }
-
-    safe_release(converter);
-    safe_release(frame);
-    safe_release(decoder);
-    safe_release(imagingFactory);
-
-    // WIC gives us BGRA, but GLFW cursors expect RGBA on Windows
-    // Swap R and B channels
-    for (size_t i = 0; i < pixels.size(); i += 4)
-    {
-        std::swap(pixels[i], pixels[i + 2]);  // Swap R and B
-    }
-
-    GLFWimage GLFWimage;
-    GLFWimage.width = static_cast<int>(width);
-    GLFWimage.height = static_cast<int>(height);
-    GLFWimage.pixels = pixels.data();
-
-    GLFWcursor* cursor = glfwCreateCursor(&GLFWimage, xhot, yhot);
-    if (cursor == nullptr)
-    {
-        return nullptr;
-    }
-
+    stbi_image_free(pixels);
     return cursor;
 }

@@ -12,23 +12,65 @@
 #include "src/Game/GameLoop.h"
 #include <cstddef>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
+// Global pointers for the main loop callback
+static EngineState* gEngineLoop = nullptr;
+static AppState* gAppStateLoop = nullptr;
+static GLFWwindow* gWindowLoop = nullptr;
+
+void main_loop()
+{
+    const float currentFrame = static_cast<float>(glfwGetTime());
+    deltaTime = currentFrame - lastFrame;
+    lastFrame = currentFrame;
+
+    processInput(gWindowLoop);
+    ImGui_ImplOpenGL3_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+
+    UpdateSimulation(*gEngineLoop, *gAppStateLoop);
+    RenderScene(*gEngineLoop, *gAppStateLoop);
+    RenderUI(*gEngineLoop, *gAppStateLoop);
+
+    ImGui::Render();
+    ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+    glfwSwapBuffers(gWindowLoop);
+    glfwPollEvents();
+}
+
 int main()
 {
     // -------------------------------------------------------------------------
     // Initialization: COM, GLFW, glad, ImGui
-    // Boot up all the libraries the engine depends on before doing anything else.
     // -------------------------------------------------------------------------
+#ifdef _WIN32
     const HRESULT comResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     if (FAILED(comResult))
     {
         return -1;
     }
+#endif
 
     if (!glfwInit())
     {
+#ifdef _WIN32
         CoUninitialize();
+#endif
         return -1;
     }
+
+#ifdef __EMSCRIPTEN__
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
+    SCR_WIDTH = 1280;
+    SCR_HEIGHT = 720;
+#else
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -37,28 +79,42 @@ int main()
     const GLFWvidmode *mode = glfwGetVideoMode(primaryMonitor);
     SCR_WIDTH = mode->width;
     SCR_HEIGHT = mode->height;
-    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "AoE2 Clone - Isometric Platform", primaryMonitor, nullptr);
+#endif
+
+    GLFWwindow *window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "AoE2 Clone - Isometric Platform",
+#ifdef __EMSCRIPTEN__
+        nullptr, nullptr
+#else
+        primaryMonitor, nullptr
+#endif
+    );
     if (window == nullptr)
     {
         glfwTerminate();
+#ifdef _WIN32
         CoUninitialize();
+#endif
         return -1;
     }
     glfwMakeContextCurrent(window);
-    glfwSwapInterval(0);  // Disable VSync (1 = sync to refresh rate, 0 = unlimited)
+    glfwSwapInterval(0);
     glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
     glfwSetScrollCallback(window, scroll_callback);
     glfwSetCursorPosCallback(window, cursor_position_callback);
     glfwSetMouseButtonCallback(window, mouse_button_callback);
     glfwSetKeyCallback(window, key_callback);
 
+#ifndef __EMSCRIPTEN__
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
     {
         glfwDestroyWindow(window);
         glfwTerminate();
+#ifdef _WIN32
         CoUninitialize();
+#endif
         return -1;
     }
+#endif
 
     AppState appState;
     EngineState engine;
@@ -94,7 +150,11 @@ int main()
     style.Colors[ImGuiCol_WindowBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.84f);
     style.Colors[ImGuiCol_Text] = ImVec4(0.92f, 0.92f, 0.92f, 1.0f);
     ImGui_ImplGlfw_InitForOpenGL(window, true);
+#ifdef __EMSCRIPTEN__
+    ImGui_ImplOpenGL3_Init("#version 300 es");
+#else
     ImGui_ImplOpenGL3_Init("#version 330");
+#endif
 
     engine.gpu.tileShaderProgram = create_program_from_files("src/shaders/tile.vs", "src/shaders/tile.fs");
     engine.gpu.spriteShaderProgram = create_program_from_files("src/shaders/sprite.vs", "src/shaders/sprite.fs");
@@ -498,36 +558,19 @@ int main()
 
     // =========================================================================
     // MAIN GAME LOOP
-    // Runs once per frame until the window is closed. Each iteration:
-    //   1. Compute deltaTime
-    //   2. Poll input
-    //   3. Update game logic (villager movement & animation)
-    //   4. Clear the framebuffer
-    //   5. Render: tiles → trees → villager → overlays → HUD
-    //   6. Swap buffers
     // =========================================================================
+    gEngineLoop = &engine;
+    gAppStateLoop = &appState;
+    gWindowLoop = window;
 
+#ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(main_loop, 0, 1);
+#else
     while (!glfwWindowShouldClose(window))
     {
-        const float currentFrame = static_cast<float>(glfwGetTime());
-        deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
-
-        processInput(window);
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        UpdateSimulation(engine, appState);
-        RenderScene(engine, appState);
-        RenderUI(engine, appState);
-
-        ImGui::Render();
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        main_loop();
     }
+#endif
     // CLEANUP
     // Free all GPU resources, shut down ImGui, and terminate GLFW.
     // Order matters: delete GPU objects before destroying the GL context.
@@ -589,6 +632,8 @@ int main()
 
     glfwDestroyWindow(window);
     glfwTerminate();
+#ifdef _WIN32
     CoUninitialize();
+#endif
     return 0;
 } // int main()
